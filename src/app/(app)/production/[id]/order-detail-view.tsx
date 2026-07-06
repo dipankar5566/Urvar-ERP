@@ -29,6 +29,7 @@ import {
 } from "@/modules/production/actions";
 import type { OrderDetail } from "@/modules/production/queries";
 import { STATUS_BADGE } from "../production-view";
+import { fmtDateTime } from "@/lib/dates";
 
 export function OrderDetailView({ detail }: { detail: OrderDetail }) {
   const { order, stages, readings, batch } = detail;
@@ -176,7 +177,7 @@ export function OrderDetailView({ detail }: { detail: OrderDetail }) {
                     </div>
                     {stage.completedAt && (
                       <div className="mt-0.5 text-xs text-muted-foreground">
-                        Completed {stage.completedAt.slice(0, 16).replace("T", " ")}
+                        Completed {fmtDateTime(stage.completedAt)}
                       </div>
                     )}
                     {stageReadingRows.length > 0 && (
@@ -208,7 +209,7 @@ export function OrderDetailView({ detail }: { detail: OrderDetail }) {
               {readings.map((r) => (
                 <div key={r.id} className="flex flex-wrap items-baseline gap-2">
                   <span className="font-mono text-xs text-muted-foreground">
-                    {r.recordedAt.slice(0, 16).replace("T", " ")}
+                    {fmtDateTime(r.recordedAt)}
                   </span>
                   <span className="font-medium capitalize">{r.parameter}</span>
                   <span className="font-mono">

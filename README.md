@@ -1,36 +1,70 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Urvar ERP
 
-## Getting Started
+Manufacturing ERP for **Urvar Natural Pvt. Ltd.** — purpose-built for organic fertilizer
+production (vermicompost, PROM, FYM, potting mix, and more). Manufacturing-first:
+production orders drive material issue, batch creation, and finished-goods stock
+automatically through an immutable inventory ledger.
 
-First, run the development server:
+## Phase 1 (current)
+
+- **Production** — orders (`PO-YYMM-###`), configurable manufacturing workflows
+  (16-stage vermicompost flow seeded), stage-by-stage tracking with temperature /
+  moisture / pH readings, FIFO raw-material issue on start, batch creation on completion.
+- **Batches** — auto-numbered (`UV-VC-260707-01`), yield %, expiry from product shelf life,
+  full traceability to supplier lots, QC status (drives dispatch in Phase 2).
+- **Inventory** — immutable transaction ledger, goods receipts (create supplier lots),
+  admin-only adjustments with reason, low-stock alerts, negative stock blocked.
+- **Masters** — products, items, formulas (BOM), workflow templates, warehouses, users.
+- **Dashboard** — today/month production, target vs actual, average yield, active orders,
+  low stock, recent batches.
+- Roles: `admin` (everything) and `supervisor` (no Masters, no adjustments).
+- CSV export on batches and the stock ledger.
+
+Phase 2 (next): Quality Control — incoming inspection, in-process checks, finished-product
+testing, QC workflow gating dispatch, CAPA.
+
+## Run it
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run db:migrate   # create/upgrade the SQLite database (data/urvar.db)
+npm run db:seed      # first time only: products, workflow, warehouse, users
+npm run dev          # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Default logins (change these in Masters → Users):
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Role | Username | Password |
+|---|---|---|
+| Admin | `admin` | `admin123` |
+| Supervisor | `supervisor` | `super123` |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+For production use, set `SESSION_SECRET` in `.env.local`.
 
-## Learn More
+## Stack
 
-To learn more about Next.js, take a look at the following resources:
+Next.js 16 (App Router) · TypeScript · SQLite via Drizzle ORM (`data/urvar.db`, gitignored)
+· Tailwind CSS 4 + shadcn/ui (Base UI) · Zod. No external services — runs entirely on one
+machine; deploy to any Node host later, or migrate the Drizzle schema to Postgres.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Layout
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```
+src/db/            schema, migrations, seed
+src/lib/           session auth, ledger core, numbering, dates
+src/modules/       domain logic + server actions (production, inventory, batches, masters)
+src/app/(app)/     authenticated pages (dashboard, production, batches, inventory, masters)
+proxy.ts           auth gate (Next 16 proxy, formerly middleware)
+```
 
-## Deploy on Vercel
+Business rules live in `src/lib/ledger.ts`: every stock movement is one ledger row +
+balance update inside a single SQLite transaction, and every business mutation writes
+an audit log row.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Development
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+npm run typecheck        # tsc --noEmit
+npm run db:generate      # regenerate migrations after schema changes
+node e2e-walkthrough.mjs # browser walkthrough of the full manufacturing loop (dev server must be running)
+```

@@ -13,7 +13,8 @@ import {
 } from "@/components/ui/table";
 import { requireUser } from "@/lib/session";
 import { getBatchDetail } from "@/modules/batches/queries";
-import { QC_BADGE } from "../batches-view";
+import { QC_BADGE } from "@/modules/batches/badges";
+import { fmtDateTime } from "@/lib/dates";
 
 export default async function BatchDetailPage(props: PageProps<"/batches/[id]">) {
   await requireUser();
@@ -113,7 +114,7 @@ export default async function BatchDetailPage(props: PageProps<"/batches/[id]">)
                     </span>
                     {stage.completedAt && (
                       <span className="ml-2 text-xs text-muted-foreground">
-                        {stage.completedAt.slice(0, 16).replace("T", " ")}
+                        {fmtDateTime(stage.completedAt)}
                       </span>
                     )}
                     {stageReadingRows.length > 0 && (

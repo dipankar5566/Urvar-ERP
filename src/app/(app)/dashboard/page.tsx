@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUser } from "@/lib/session";
 import { getDashboardData } from "@/modules/dashboard/queries";
-import { QC_BADGE } from "../batches/batches-view";
+import { QC_BADGE } from "@/modules/batches/badges";
 
 export default async function DashboardPage() {
   const user = await requireUser();

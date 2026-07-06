@@ -20,6 +20,7 @@ import { createGoodsReceipt, createAdjustment } from "@/modules/inventory/action
 import { categoryLabel, type Item, type Warehouse } from "@/modules/masters/types";
 import type { StockRow, TransactionRow } from "@/modules/inventory/queries";
 import type { SessionUser } from "@/lib/session";
+import { fmtDateTime } from "@/lib/dates";
 
 const TXN_LABELS: Record<string, string> = {
   goods_receipt: "Goods Receipt",
@@ -42,7 +43,8 @@ export function InventoryView({
   warehouses: Warehouse[];
 }) {
   const receivableItems = items.filter((i) => i.category !== "finished_good" && i.active);
-  const today = new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
   function exportLedgerCsv() {
     const header = "Date,Type,Item,Warehouse,Lot,Batch,Qty,UoM,By,Reason\n";
@@ -263,7 +265,7 @@ export function InventoryView({
                 )}
                 {transactions.map((t) => (
                   <TableRow key={t.id}>
-                    <TableCell className="whitespace-nowrap text-sm">{t.createdAt}</TableCell>
+                    <TableCell className="whitespace-nowrap text-sm">{fmtDateTime(t.createdAt)}</TableCell>
                     <TableCell>
                       <Badge variant={t.qty >= 0 ? "secondary" : "outline"}>
                         {TXN_LABELS[t.type] ?? t.type}

@@ -14,14 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { BatchRow } from "@/modules/batches/queries";
 
-export const QC_BADGE: Record<
-  string,
-  { label: string; variant: "secondary" | "default" | "destructive" | "outline" }
-> = {
-  pending: { label: "QC Pending", variant: "outline" },
-  released: { label: "Released", variant: "secondary" },
-  hold: { label: "On Hold", variant: "destructive" },
-};
+import { QC_BADGE } from "@/modules/batches/badges";
 
 export function BatchesView({ batches }: { batches: BatchRow[] }) {
   function exportCsv() {

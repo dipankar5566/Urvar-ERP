@@ -21,6 +21,7 @@ import {
 import { requireUser } from "@/lib/session";
 import { atomic, postTransaction, writeAudit } from "@/lib/ledger";
 import { nextDocNumber, nextBatchNumber } from "@/lib/numbering";
+import { localDateISO } from "@/lib/dates";
 import type { ActionResult } from "@/modules/masters/actions";
 
 function fail(e: unknown): ActionResult {
@@ -369,10 +370,10 @@ export async function completeProductionOrder(formData: FormData): Promise<Actio
 
       // Batch numbers + dates
       const now = new Date();
-      const mfgDate = now.toISOString().slice(0, 10);
+      const mfgDate = localDateISO(now);
       const expiry = new Date(now);
       expiry.setMonth(expiry.getMonth() + product.shelfLifeMonths);
-      const expiryDate = expiry.toISOString().slice(0, 10);
+      const expiryDate = localDateISO(expiry);
 
       const batchNo = nextBatchNumber(product.code, now);
       const yieldPct = (data.actualQty / order.targetQty) * 100;

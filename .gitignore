@@ -42,3 +42,6 @@ next-env.d.ts
 
 # SQLite database
 /data/
+
+# E2E artifacts
+/e2e-shots/

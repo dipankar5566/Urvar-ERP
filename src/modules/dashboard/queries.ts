@@ -1,7 +1,8 @@
 import { sqlite } from "@/db";
+import { localDateISO } from "@/lib/dates";
 
 export function getDashboardData() {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateISO();
   const monthStart = today.slice(0, 8) + "01";
 
   const todayProduction = sqlite
