@@ -2,13 +2,26 @@
 // positions fitted inside the zone polygons from the site plan.
 // Idempotent: skips if zones already exist.
 
+import { eq } from "drizzle-orm";
 import { db } from "./index";
-import { zones, beds } from "./schema";
+import { zones, beds, warehouses } from "./schema";
 import { BED_LENGTH_FT, BED_WIDTH_FT, BED_GAP_FT } from "../modules/layout/site-geometry";
 
 const PITCH = BED_WIDTH_FT + BED_GAP_FT; // 7'
 
 async function seedBeds() {
+  const existingShed = db
+    .select()
+    .from(warehouses)
+    .where(eq(warehouses.name, "Machine Shed & Godown"))
+    .get();
+  if (!existingShed) {
+    db.insert(warehouses)
+      .values({ name: "Machine Shed & Godown", location: "Kisanbandhu Plant — near Zone 1/2 boundary" })
+      .run();
+    console.log("Seeded Machine Shed & Godown warehouse.");
+  }
+
   const existing = db.select().from(zones).limit(1).all();
   if (existing.length > 0) {
     console.log("Zones already seeded — skipping.");

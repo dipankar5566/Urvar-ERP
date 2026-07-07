@@ -9,6 +9,8 @@ import {
   ZONE1_POLY,
   ZONE2_POLY,
   STRIP_POLY,
+  ZONE1_TREE_LINES,
+  MACHINE_SHED_RECT,
   type Pt,
 } from "@/modules/layout/site-geometry";
 import type { BedLayout, LayoutBed } from "@/modules/layout/queries";
@@ -66,6 +68,9 @@ export function LayoutView({ layout }: { layout: BedLayout }) {
           <span className="flex items-center gap-1.5">
             <span className="inline-block h-3 w-3 rounded-sm bg-emerald-600" /> Composting
           </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-3 w-3 rounded-sm border border-sky-600 bg-sky-500/15" /> Shed
+          </span>
         </div>
       </div>
 
@@ -102,6 +107,45 @@ export function LayoutView({ layout }: { layout: BedLayout }) {
                   className="fill-orange-500/10 stroke-orange-600/50"
                   strokeWidth="1"
                 />
+
+                {/* Tree lines between Zone 1 beds */}
+                {ZONE1_TREE_LINES.map(([p1, p2], i) => {
+                  const [x1, y1] = px(p1);
+                  const [x2, y2] = px(p2);
+                  return (
+                    <line
+                      key={i}
+                      x1={x1}
+                      y1={y1}
+                      x2={x2}
+                      y2={y2}
+                      className="stroke-emerald-800/70 dark:stroke-emerald-400/70"
+                      strokeWidth="1.5"
+                      strokeDasharray="1 2"
+                    />
+                  );
+                })}
+
+                {/* Machine Shed & Godown */}
+                <polygon
+                  points={poly(MACHINE_SHED_RECT)}
+                  className="fill-sky-500/15 stroke-sky-600"
+                  strokeWidth="1.25"
+                />
+                <text
+                  x={px([MACHINE_SHED_RECT[0][0] + 2, (MACHINE_SHED_RECT[0][1] + MACHINE_SHED_RECT[2][1]) / 2 + 2])[0]}
+                  y={px([MACHINE_SHED_RECT[0][0] + 2, (MACHINE_SHED_RECT[0][1] + MACHINE_SHED_RECT[2][1]) / 2 + 2])[1]}
+                  className="fill-sky-700 dark:fill-sky-400 text-[9px] font-semibold"
+                >
+                  Machine Shed
+                </text>
+                <text
+                  x={px([MACHINE_SHED_RECT[0][0] + 2, (MACHINE_SHED_RECT[0][1] + MACHINE_SHED_RECT[2][1]) / 2 - 4])[0]}
+                  y={px([MACHINE_SHED_RECT[0][0] + 2, (MACHINE_SHED_RECT[0][1] + MACHINE_SHED_RECT[2][1]) / 2 - 4])[1]}
+                  className="fill-sky-700 dark:fill-sky-400 text-[9px] font-semibold"
+                >
+                  &amp; Godown
+                </text>
 
                 {/* Zone labels */}
                 <text x={px([150, 108])[0]} y={px([150, 108])[1]} className="fill-emerald-700 dark:fill-emerald-500 text-[13px] font-semibold">
