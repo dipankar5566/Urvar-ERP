@@ -56,23 +56,10 @@ export const ZONE1_DIAGONAL: [Pt, Pt] = [
   [125.6, 18.43],
 ];
 
-export const BED_LENGTH_FT = 70;
+// Beds themselves are stored per-bed in the database (src/db/seed-beds.ts)
+// as exact centerline segments extracted from the site plan's vector data —
+// not a formulaic grid. These constants remain only for reference.
 export const BED_WIDTH_FT = 4;
-export const BED_GAP_FT = 3;
-
-// Tree-line dividers between Zone 1 beds (visual only — not tracked master
-// data). One line in the middle of each 3' gap between the 10 beds, per the
-// updated site plan.
-const Z1_BED_TOP_Y = 115;
-const Z1_PITCH = BED_WIDTH_FT + BED_GAP_FT; // 7'
-const Z1_BED_X0 = 60;
-export const ZONE1_TREE_LINES: [Pt, Pt][] = Array.from({ length: 9 }, (_, i) => {
-  const y = Z1_BED_TOP_Y - i * Z1_PITCH - BED_WIDTH_FT - BED_GAP_FT / 2;
-  return [
-    [Z1_BED_X0, y],
-    [Z1_BED_X0 + BED_LENGTH_FT, y],
-  ] as [Pt, Pt];
-});
 
 // Machine Shed & Godown, positioned near the Zone 1 / Zone 2 boundary
 // (the L–F internal line) per the updated site plan.

@@ -98,12 +98,15 @@ export const beds = sqliteTable(
     id: integer("id").primaryKey({ autoIncrement: true }),
     zoneId: integer("zone_id").notNull().references(() => zones.id),
     code: text("code").notNull().unique(), // Z1-01 … Z2-15
-    lengthFt: real("length_ft").notNull(),
+    // Bed centerline endpoints on the site plan, in feet (y increases
+    // northward). General (x1,y1)-(x2,y2) segment, not axis-aligned —
+    // lets beds sit at any angle, matching the surveyed plan exactly.
+    x1: real("x1").notNull(),
+    y1: real("y1").notNull(),
+    x2: real("x2").notNull(),
+    y2: real("y2").notNull(),
     widthFt: real("width_ft").notNull(),
-    // Bed top-left corner on the site plan, in feet (y increases northward).
-    posX: real("pos_x").notNull(),
-    posY: real("pos_y").notNull(),
-    orientation: text("orientation", { enum: ["h", "v"] }).notNull(), // h: length runs E-W
+    lengthFt: real("length_ft").notNull(),
     active: integer("active", { mode: "boolean" }).notNull().default(true),
   },
   (t) => [index("beds_zone").on(t.zoneId)]

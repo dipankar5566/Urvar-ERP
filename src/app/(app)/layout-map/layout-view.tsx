@@ -9,7 +9,6 @@ import {
   ZONE1_POLY,
   ZONE2_POLY,
   STRIP_POLY,
-  ZONE1_TREE_LINES,
   MACHINE_SHED_RECT,
   type Pt,
 } from "@/modules/layout/site-geometry";
@@ -39,14 +38,27 @@ export function LayoutView({ layout }: { layout: BedLayout }) {
   const [selected, setSelected] = useState<LayoutBed | null>(null);
 
   const occupiedCount = layout.beds.filter((b) => b.occupant).length;
+  const zone1Count = layout.beds.filter((b) => b.zoneId === layout.zones.find((z) => z.code === "Z1")?.id).length;
+  const zone2Count = layout.beds.filter((b) => b.zoneId === layout.zones.find((z) => z.code === "Z2")?.id).length;
 
-  const bedRects = useMemo(
+  // Each bed is a general (x1,y1)-(x2,y2) centerline segment + width — not
+  // axis-aligned, so render as a rotated quadrilateral (4 corners offset
+  // perpendicular to the segment by half the bed width).
+  const bedPolys = useMemo(
     () =>
       layout.beds.map((b) => {
-        const w = b.orientation === "h" ? b.lengthFt : b.widthFt;
-        const h = b.orientation === "h" ? b.widthFt : b.lengthFt;
-        const [x, y] = px([b.posX, b.posY]);
-        return { bed: b, x, y, w: w * SCALE, h: h * SCALE };
+        const dx = b.x2 - b.x1;
+        const dy = b.y2 - b.y1;
+        const len = Math.hypot(dx, dy) || 1;
+        const px_ = (-dy / len) * (b.widthFt / 2);
+        const py_ = (dx / len) * (b.widthFt / 2);
+        const corners: Pt[] = [
+          [b.x1 + px_, b.y1 + py_],
+          [b.x2 + px_, b.y2 + py_],
+          [b.x2 - px_, b.y2 - py_],
+          [b.x1 - px_, b.y1 - py_],
+        ];
+        return { bed: b, corners: corners.map(px) };
       }),
     [layout.beds]
   );
@@ -108,24 +120,6 @@ export function LayoutView({ layout }: { layout: BedLayout }) {
                   strokeWidth="1"
                 />
 
-                {/* Tree lines between Zone 1 beds */}
-                {ZONE1_TREE_LINES.map(([p1, p2], i) => {
-                  const [x1, y1] = px(p1);
-                  const [x2, y2] = px(p2);
-                  return (
-                    <line
-                      key={i}
-                      x1={x1}
-                      y1={y1}
-                      x2={x2}
-                      y2={y2}
-                      className="stroke-emerald-800/70 dark:stroke-emerald-400/70"
-                      strokeWidth="1.5"
-                      strokeDasharray="1 2"
-                    />
-                  );
-                })}
-
                 {/* Machine Shed & Godown */}
                 <polygon
                   points={poly(MACHINE_SHED_RECT)}
@@ -149,16 +143,17 @@ export function LayoutView({ layout }: { layout: BedLayout }) {
 
                 {/* Zone labels */}
                 <text x={px([150, 108])[0]} y={px([150, 108])[1]} className="fill-emerald-700 dark:fill-emerald-500 text-[13px] font-semibold">
-                  Zone 1 · 10 beds
+                  Zone 1 · {zone1Count} beds
                 </text>
                 <text x={px([-58, -190])[0]} y={px([-58, -190])[1]} className="fill-orange-700 dark:fill-orange-500 text-[13px] font-semibold">
-                  Zone 2 · 15 beds
+                  Zone 2 · {zone2Count} beds
                 </text>
 
-                {/* Beds */}
-                {bedRects.map(({ bed, x, y, w, h }) => {
+                {/* Beds — each a quadrilateral at its exact surveyed angle */}
+                {bedPolys.map(({ bed, corners }) => {
                   const occupied = !!bed.occupant;
                   const isSelected = selected?.id === bed.id;
+                  const pointsStr = corners.map((c) => c.join(",")).join(" ");
                   return (
                     <g
                       key={bed.id}
@@ -167,14 +162,8 @@ export function LayoutView({ layout }: { layout: BedLayout }) {
                       role="button"
                       aria-label={`Bed ${bed.code}${occupied ? `, occupied by ${bed.occupant!.orderNo}` : ", empty"}`}
                     >
-                      {/* generous hit target */}
-                      <rect x={x - 3} y={y - 3} width={w + 6} height={h + 6} fill="transparent" />
-                      <rect
-                        x={x}
-                        y={y}
-                        width={w}
-                        height={h}
-                        rx={2}
+                      <polygon
+                        points={pointsStr}
                         className={
                           occupied
                             ? "fill-emerald-600 stroke-emerald-700"
@@ -183,15 +172,12 @@ export function LayoutView({ layout }: { layout: BedLayout }) {
                         strokeWidth={isSelected ? 2.5 : 1}
                       />
                       {isSelected && (
-                        <rect
-                          x={x - 2}
-                          y={y - 2}
-                          width={w + 4}
-                          height={h + 4}
-                          rx={3}
+                        <polygon
+                          points={pointsStr}
                           fill="none"
                           className="stroke-primary"
-                          strokeWidth="1.5"
+                          strokeWidth="2.5"
+                          strokeDasharray="0"
                         />
                       )}
                     </g>
