@@ -76,3 +76,25 @@ curl -H "Cookie: urvar_session=$COOKIE" http://localhost:PORT/dashboard
   product silently downstream (their dependent selects go empty, see above). Sanity
   check after any Masters edit: `sqlite3 data/urvar.db "select f.name, p.name from
   formulas f join products p on p.id=f.product_id;"` should read sensibly.
+- **Site layout / bed positions: never eyeball a rendered PDF image to place beds —
+  extract the actual vector coordinates.** `pip3 install pymupdf`, then
+  `page.get_drawings()` gives every line's exact PDF-space endpoints grouped by
+  stroke color. Solve an affine transform from PDF-space to feet-space using ≥3
+  points whose real-world positions you already know (matched by edge-length, e.g.
+  a boundary corner where two dimensioned edges meet) via
+  `numpy.linalg.lstsq(hstack([P, ones]), Q)`; verify residuals are near zero before
+  trusting it. This caught two real bugs an eyeballed reading missed: a bed block
+  overflowing 10ft past a diagonal zone-divider line, and the true bed count/shape
+  (27 individual beds — 12 in Zone 1 including 4 diagonal ones, 15 in Zone 2 with a
+  mix of two lengths) being nothing like the "10 + 15 uniform grid" the verbal spec
+  implied. Beds are stored as a general `(x1,y1)-(x2,y2)` centerline + width, not
+  `(posX,posY,orientation)` — several are not axis-aligned. Always re-verify bed
+  placement with a real point-in-polygon test (not visual inspection) after any
+  reposition: see the Python snippet pattern used in commit history around
+  `site-geometry.ts`.
+- **After schema changes to `beds`/`zones` (or any DROP TABLE), restart the dev
+  server** even if you didn't delete the DB file — Drizzle/better-sqlite3 can hold
+  stale prepared-statement metadata for the old column set. `drizzle-kit generate`
+  also needs an interactive TTY to resolve rename-vs-drop+add ambiguity; in this
+  environment, use `drizzle-kit generate --custom` for an empty migration file and
+  hand-write the SQL instead of fighting the prompt.
