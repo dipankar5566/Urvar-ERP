@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AlertTriangle, ArrowRight } from "lucide-react";
+import { AlertTriangle, ArrowRight, ShieldCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUser } from "@/lib/session";
@@ -36,7 +36,7 @@ export default async function DashboardPage() {
         />
       </div>
 
-      <div className="mt-6 grid gap-4 lg:grid-cols-2">
+      <div className="mt-6 grid gap-4 lg:grid-cols-3">
         {/* Active orders */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
@@ -103,6 +103,49 @@ export default async function DashboardPage() {
                 ))}
               </ul>
             )}
+          </CardContent>
+        </Card>
+
+        {/* Quality summary */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="text-base">Quality</CardTitle>
+            <Link
+              href="/quality"
+              className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+            >
+              Quality <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Inspections pending</span>
+              <span className="font-medium tabular-nums">{data.pendingInspections}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Batches awaiting QC</span>
+              <span className="font-medium tabular-nums">{data.batchesAwaitingQC}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Batches on hold</span>
+              <span
+                className={`font-medium tabular-nums ${data.batchesOnHold > 0 ? "text-destructive" : ""}`}
+              >
+                {data.batchesOnHold}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Open CAPAs</span>
+              <span className="font-medium tabular-nums">{data.openCapas}</span>
+            </div>
+            {data.pendingInspections === 0 &&
+              data.batchesAwaitingQC === 0 &&
+              data.batchesOnHold === 0 &&
+              data.openCapas === 0 && (
+                <p className="flex items-center gap-1.5 pt-1 text-xs text-muted-foreground">
+                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" /> All clear
+                </p>
+              )}
           </CardContent>
         </Card>
       </div>

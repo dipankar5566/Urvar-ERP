@@ -171,6 +171,9 @@ export const stageReadings = sqliteTable(
     value: real("value").notNull(),
     unit: text("unit"), // °C, %, pH, count
     notes: text("notes"),
+    // Manually flagged by whoever records the reading — no threshold config
+    // exists on workflow stages yet, so this isn't automatic.
+    isDeviation: integer("is_deviation", { mode: "boolean" }).notNull().default(false),
     // Which specific bed this reading was taken from, when the order has
     // beds assigned (an order can span multiple beds with different
     // conditions). Null for orders with no bed assignment.
@@ -212,6 +215,18 @@ export const lots = sqliteTable("lots", {
   remarks: text("remarks"),
   createdBy: integer("created_by").notNull().references(() => users.id),
   createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+  // Incoming inspection — recorded after receipt, not blocking it. Only a
+  // "rejected" result excludes this lot from production FIFO issue.
+  qcStatus: text("qc_status", { enum: ["pending", "accepted", "rejected"] })
+    .notNull()
+    .default("pending"),
+  moisturePct: real("moisture_pct"),
+  foreignMatterPct: real("foreign_matter_pct"),
+  odour: text("odour", { enum: ["normal", "off"] }),
+  visualCondition: text("visual_condition", { enum: ["good", "fair", "poor"] }),
+  inspectionRemarks: text("inspection_remarks"),
+  inspectedBy: integer("inspected_by").references(() => users.id),
+  inspectedAt: text("inspected_at"),
 });
 
 export const batches = sqliteTable("batches", {
@@ -226,7 +241,9 @@ export const batches = sqliteTable("batches", {
   expectedQty: real("expected_qty").notNull(),
   yieldPct: real("yield_pct").notNull(),
   warehouseId: integer("warehouse_id").notNull().references(() => warehouses.id),
-  qcStatus: text("qc_status", { enum: ["pending", "released", "hold"] })
+  qcStatus: text("qc_status", {
+    enum: ["pending", "sample_collected", "testing", "released", "hold"],
+  })
     .notNull()
     .default("pending"),
   dispatchStatus: text("dispatch_status", { enum: ["in_stock", "partial", "dispatched"] })
@@ -247,6 +264,63 @@ export const batchInputs = sqliteTable(
   },
   (t) => [index("bi_batch").on(t.batchId), index("bi_lot").on(t.lotId)]
 );
+
+// Finished-product testing. Flexible parameter/value rows (matches
+// stage_readings), since a batch test covers many disparate parameters.
+export const batchTestResults = sqliteTable(
+  "batch_test_results",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    batchId: integer("batch_id")
+      .notNull()
+      .references(() => batches.id, { onDelete: "cascade" }),
+    parameter: text("parameter", {
+      enum: [
+        "moisture",
+        "organic_carbon",
+        "nitrogen",
+        "phosphorus",
+        "potassium",
+        "cn_ratio",
+        "ph",
+        "ec",
+        "bulk_density",
+        "particle_size",
+        "appearance",
+        "odour",
+        "other",
+      ],
+    }).notNull(),
+    value: real("value"),
+    textValue: text("text_value"), // for qualitative params like appearance/odour
+    unit: text("unit"),
+    recordedBy: integer("recorded_by").notNull().references(() => users.id),
+    recordedAt: text("recorded_at").notNull().default(sql`(datetime('now'))`),
+  },
+  (t) => [index("btr_batch").on(t.batchId)]
+);
+
+// Corrective and Preventive Action — typically triggered by a QC failure,
+// but standalone (issue with no linked batch/lot) is also valid.
+export const capas = sqliteTable("capas", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  capaNo: text("capa_no").notNull().unique(), // CAPA-YYMM-###
+  issue: text("issue").notNull(),
+  rootCause: text("root_cause"),
+  correctiveAction: text("corrective_action"),
+  preventiveAction: text("preventive_action"),
+  responsibleUserId: integer("responsible_user_id").references(() => users.id),
+  deadline: text("deadline"),
+  status: text("status", { enum: ["open", "in_progress", "verification", "closed"] })
+    .notNull()
+    .default("open"),
+  linkedBatchId: integer("linked_batch_id").references(() => batches.id),
+  linkedLotId: integer("linked_lot_id").references(() => lots.id),
+  verificationNotes: text("verification_notes"),
+  createdBy: integer("created_by").notNull().references(() => users.id),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+  closedAt: text("closed_at"),
+});
 
 // ---------- Inventory ----------
 

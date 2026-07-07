@@ -75,5 +75,28 @@ export function getAvailableLots(itemId: number, warehouseId: number) {
     .all();
 }
 
+// All batches with remaining stock, across every item/warehouse — used by
+// the stock-adjustment dialog's batch picker (QC dispatch gate). Filtered
+// client-side to the currently selected item+warehouse; small enough scale
+// (one plant, dozens of live batches) that bulk-loading beats a round trip
+// per item selection, matching how items/warehouses are already loaded.
+export function getAvailableBatches() {
+  return db
+    .select({
+      batchId: batches.id,
+      batchNo: batches.batchNo,
+      qcStatus: batches.qcStatus,
+      itemId: stockBalances.itemId,
+      warehouseId: stockBalances.warehouseId,
+      qty: stockBalances.qty,
+    })
+    .from(stockBalances)
+    .innerJoin(batches, eq(stockBalances.batchId, batches.id))
+    .where(sql`${stockBalances.qty} > 1e-9`)
+    .orderBy(batches.mfgDate, batches.id)
+    .all();
+}
+
 export type StockRow = ReturnType<typeof getStockOverview>[number];
 export type TransactionRow = ReturnType<typeof getRecentTransactions>[number];
+export type AvailableBatchRow = ReturnType<typeof getAvailableBatches>[number];

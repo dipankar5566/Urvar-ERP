@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Plus, SlidersHorizontal, AlertTriangle, Download } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -18,7 +19,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { FormDialog, NativeSelect } from "@/components/form-dialog";
 import { createGoodsReceipt, createAdjustment } from "@/modules/inventory/actions";
 import { categoryLabel, type Item, type Warehouse } from "@/modules/masters/types";
-import type { StockRow, TransactionRow } from "@/modules/inventory/queries";
+import type { StockRow, TransactionRow, AvailableBatchRow } from "@/modules/inventory/queries";
 import type { SessionUser } from "@/lib/session";
 import { fmtDateTime } from "@/lib/dates";
 
@@ -35,12 +36,14 @@ export function InventoryView({
   transactions,
   items,
   warehouses,
+  availableBatches,
 }: {
   user: SessionUser;
   stock: StockRow[];
   transactions: TransactionRow[];
   items: Item[];
   warehouses: Warehouse[];
+  availableBatches: AvailableBatchRow[];
 }) {
   const receivableItems = items.filter((i) => i.category !== "finished_good" && i.active);
   const now = new Date();
@@ -149,36 +152,7 @@ export function InventoryView({
                 </Button>
               }
             >
-              <div className="space-y-2">
-                <Label htmlFor="adj-item">Item</Label>
-                <NativeSelect id="adj-item" name="itemId" required>
-                  {items.map((i) => (
-                    <option key={i.id} value={i.id}>
-                      {i.name} ({i.uom})
-                    </option>
-                  ))}
-                </NativeSelect>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-2">
-                  <Label htmlFor="adj-qty">Quantity (+ add / − remove)</Label>
-                  <Input id="adj-qty" name="qty" type="number" step="any" required />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="adj-wh">Warehouse</Label>
-                  <NativeSelect id="adj-wh" name="warehouseId" required>
-                    {warehouses.map((w) => (
-                      <option key={w.id} value={w.id}>
-                        {w.name}
-                      </option>
-                    ))}
-                  </NativeSelect>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="adj-reason">Reason (required)</Label>
-                <Textarea id="adj-reason" name="reason" rows={2} required />
-              </div>
+              <AdjustmentFields items={items} warehouses={warehouses} availableBatches={availableBatches} />
             </FormDialog>
           )}
         </div>
@@ -290,5 +264,89 @@ export function InventoryView({
         </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+// Adjustment form body — needs its own state so the batch picker (only
+// relevant for finished_good items, gated on QC status) can appear/disappear
+// as the item selection changes, and re-scope to the chosen warehouse.
+function AdjustmentFields({
+  items,
+  warehouses,
+  availableBatches,
+}: {
+  items: Item[];
+  warehouses: Warehouse[];
+  availableBatches: AvailableBatchRow[];
+}) {
+  const [itemId, setItemId] = useState<number>(items[0]?.id ?? 0);
+  const [warehouseId, setWarehouseId] = useState<number>(warehouses[0]?.id ?? 0);
+  const selectedItem = items.find((i) => i.id === itemId);
+  const isFinishedGood = selectedItem?.category === "finished_good";
+  const batchChoices = availableBatches.filter(
+    (b) => b.itemId === itemId && b.warehouseId === warehouseId
+  );
+
+  return (
+    <>
+      <div className="space-y-2">
+        <Label htmlFor="adj-item">Item</Label>
+        <NativeSelect
+          id="adj-item"
+          name="itemId"
+          value={itemId}
+          onChange={(e) => setItemId(Number(e.target.value))}
+          required
+        >
+          {items.map((i) => (
+            <option key={i.id} value={i.id}>
+              {i.name} ({i.uom})
+            </option>
+          ))}
+        </NativeSelect>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-2">
+          <Label htmlFor="adj-qty">Quantity (+ add / − remove)</Label>
+          <Input id="adj-qty" name="qty" type="number" step="any" required />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="adj-wh">Warehouse</Label>
+          <NativeSelect
+            id="adj-wh"
+            name="warehouseId"
+            value={warehouseId}
+            onChange={(e) => setWarehouseId(Number(e.target.value))}
+            required
+          >
+            {warehouses.map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.name}
+              </option>
+            ))}
+          </NativeSelect>
+        </div>
+      </div>
+      {isFinishedGood && (
+        <div className="space-y-2">
+          <Label htmlFor="adj-batch">Batch (required for finished goods)</Label>
+          <NativeSelect id="adj-batch" name="batchId" required>
+            {batchChoices.length === 0 && <option value="">No batches with stock here</option>}
+            {batchChoices.map((b) => (
+              <option key={b.batchId} value={b.batchId}>
+                {b.batchNo} — {b.qcStatus} ({Number(b.qty.toFixed(3))} on hand)
+              </option>
+            ))}
+          </NativeSelect>
+          <p className="text-xs text-muted-foreground">
+            Removing stock (negative qty) is blocked unless the batch is QC-released.
+          </p>
+        </div>
+      )}
+      <div className="space-y-2">
+        <Label htmlFor="adj-reason">Reason (required)</Label>
+        <Textarea id="adj-reason" name="reason" rows={2} required />
+      </div>
+    </>
   );
 }

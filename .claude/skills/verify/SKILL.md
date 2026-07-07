@@ -126,3 +126,24 @@ curl -H "Cookie: urvar_session=$COOKIE" http://localhost:PORT/dashboard
   on that table carries meaning tied to *when the row was created* (like an
   `assignedAt`). Delete+reinsert resets it for every row, not just the ones that
   actually changed — diff the old vs. new set and only touch what changed.
+- **Sonner toast text lags one action behind when you click-then-immediately-read
+  it in a tight Playwright loop** — `page.locator("[data-sonner-toast]").last()`
+  can return the *previous* toast because the new one hasn't mounted yet. Don't
+  trust toast text as evidence for a multi-step flow; verify the actual outcome
+  via `sqlite3` (row values, `audit_log` ordering) instead. This isn't an app bug,
+  just a test-harness race — seen repeatedly verifying the Phase 2 QC workflow.
+- **A locator like `button:has-text('Adjust')` matches substrings across the
+  whole page** — e.g. it matched both the sidebar's "Adjustment" nav trigger and
+  a dialog's "Adjust" submit button, and Playwright silently clicked the first
+  DOM match (the wrong one), leaving the intended action untested while looking
+  like it passed. Scope dialog-submit clicks to
+  `[role=dialog] button[type=submit]:has-text('...')`, and scope picker options
+  with `.find(o => o.startsWith(exactPrefix))` instead of `.includes()` — a loose
+  `.includes()` match against a list of similar option labels (e.g. multiple
+  batch numbers) silently selects the first match, not necessarily the one you
+  meant, and the mistake produces a passing-looking result instead of an error.
+- **After completing/holding/releasing a batch or order in one script run,
+  re-derive "which one is fresh" from the DB (`select id, batch_no, qc_status
+  from batches`) before writing the next script** — don't assume a specific ID
+  or that a button (e.g. "Hold") is still present; state from the previous run
+  changes what actions are even available on the page.

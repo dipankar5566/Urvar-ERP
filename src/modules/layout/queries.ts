@@ -17,6 +17,7 @@ type OccupancyRow = {
   readingValue: number | null;
   readingUnit: string | null;
   readingRecordedAt: string | null;
+  readingIsDeviation: number | null;
 };
 
 export function getBedLayout() {
@@ -38,7 +39,8 @@ export function getBedLayout() {
          sr.parameter as readingParameter,
          sr.value as readingValue,
          sr.unit as readingUnit,
-         sr.recorded_at as readingRecordedAt
+         sr.recorded_at as readingRecordedAt,
+         sr.is_deviation as readingIsDeviation
        FROM order_beds ob
        JOIN production_orders po ON po.id = ob.order_id
        JOIN products pr ON pr.id = po.product_id
@@ -62,6 +64,7 @@ export function getBedLayout() {
         ? (now - parseStoredDate(o.readingRecordedAt).getTime()) / 3_600_000
         : null;
       const stale = requiresReadings && (readingAgeHours === null || readingAgeHours > STALE_READING_HOURS);
+      const hasDeviation = !!o.readingIsDeviation;
 
       return [
         o.bedId,
@@ -73,6 +76,7 @@ export function getBedLayout() {
           daysInBed: Math.max(daysInBed, 0),
           stageName: o.stageName,
           stale,
+          hasDeviation,
           latestReading: o.readingParameter
             ? {
                 parameter: o.readingParameter,

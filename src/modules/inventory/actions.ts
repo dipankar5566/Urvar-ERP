@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
-import { items, lots } from "@/db/schema";
+import { items, lots, batches } from "@/db/schema";
 import { requireUser, requireAdmin } from "@/lib/session";
 import { atomic, postTransaction, writeAudit } from "@/lib/ledger";
 import { nextDocNumber } from "@/lib/numbering";
@@ -85,6 +85,7 @@ export async function createGoodsReceipt(formData: FormData): Promise<ActionResu
 const adjustmentSchema = z.object({
   itemId: z.coerce.number().min(1, "Item is required"),
   warehouseId: z.coerce.number().min(1, "Warehouse is required"),
+  batchId: z.coerce.number().min(1).optional(),
   qty: z.coerce
     .number()
     .refine((v) => v !== 0, "Quantity cannot be zero"),
@@ -94,16 +95,40 @@ const adjustmentSchema = z.object({
 export async function createAdjustment(formData: FormData): Promise<ActionResult> {
   try {
     const admin = await requireAdmin();
-    const data = adjustmentSchema.parse(Object.fromEntries(formData));
+    const raw = Object.fromEntries(formData);
+    if (raw.batchId === "") delete raw.batchId;
+    const data = adjustmentSchema.parse(raw);
 
     const item = db.select().from(items).where(eq(items.id, data.itemId)).get();
     if (!item) return { ok: false, error: "Item not found" };
+
+    // Finished goods are batch-tracked: require picking a batch, and block
+    // stock-out (negative qty) against anything not yet QC-released. This is
+    // the dispatch gate — there's no separate Dispatch module yet, so this
+    // is the one place finished-goods stock can currently leave the system.
+    if (item.category === "finished_good") {
+      if (!data.batchId) {
+        return { ok: false, error: "Select which batch this adjustment applies to" };
+      }
+      const batch = db.select().from(batches).where(eq(batches.id, data.batchId)).get();
+      if (!batch) return { ok: false, error: "Batch not found" };
+      if (batch.productId !== item.productId) {
+        return { ok: false, error: "That batch does not belong to the selected item" };
+      }
+      if (data.qty < 0 && batch.qcStatus !== "released") {
+        return {
+          ok: false,
+          error: `Batch ${batch.batchNo} is not QC-released (status: ${batch.qcStatus}) — cannot remove stock`,
+        };
+      }
+    }
 
     atomic(() => {
       postTransaction({
         type: "adjustment",
         itemId: data.itemId,
         warehouseId: data.warehouseId,
+        batchId: item.category === "finished_good" ? data.batchId : undefined,
         qty: data.qty,
         uom: item.uom,
         refType: "manual",

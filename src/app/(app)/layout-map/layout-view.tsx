@@ -186,6 +186,12 @@ export function LayoutView({ layout }: { layout: BedLayout }) {
                   const isSelected = selected?.id === bed.id;
                   const pointsStr = corners.map((c) => c.join(",")).join(" ");
                   const [cx, cy] = centroid;
+                  const needsAttention = occupied && (bed.occupant!.stale || bed.occupant!.hasDeviation);
+                  const attentionReason = occupied
+                    ? [bed.occupant!.stale && "reading overdue", bed.occupant!.hasDeviation && "deviation flagged"]
+                        .filter(Boolean)
+                        .join(", ")
+                    : "";
                   return (
                     <g
                       key={bed.id}
@@ -194,7 +200,7 @@ export function LayoutView({ layout }: { layout: BedLayout }) {
                       role="button"
                       aria-label={`Bed ${bed.code}${
                         occupied
-                          ? `, occupied by ${bed.occupant!.orderNo}, day ${bed.occupant!.daysInBed}${bed.occupant!.stale ? ", reading overdue" : ""}`
+                          ? `, occupied by ${bed.occupant!.orderNo}, day ${bed.occupant!.daysInBed}${attentionReason ? `, ${attentionReason}` : ""}`
                           : ", empty"
                       }`}
                     >
@@ -216,14 +222,14 @@ export function LayoutView({ layout }: { layout: BedLayout }) {
                           strokeDasharray="0"
                         />
                       )}
-                      {/* At-a-glance badge: day count + staleness, kept
+                      {/* At-a-glance badge: day count + attention flag, kept
                           horizontal regardless of the bed's own angle */}
                       {occupied && (
                         <g transform={`translate(${cx}, ${cy})`}>
                           <rect
                             x={-11}
                             y={-6}
-                            width={bed.occupant!.stale ? 30 : 22}
+                            width={needsAttention ? 30 : 22}
                             height={12}
                             rx={3}
                             className="fill-white/90 stroke-emerald-700/50 dark:fill-black/80"
@@ -236,7 +242,7 @@ export function LayoutView({ layout }: { layout: BedLayout }) {
                           >
                             D{bed.occupant!.daysInBed}
                           </text>
-                          {bed.occupant!.stale && (
+                          {needsAttention && (
                             <g transform="translate(10, -4)">
                               <circle r={4} className="fill-amber-500" />
                               <text
@@ -269,6 +275,11 @@ export function LayoutView({ layout }: { layout: BedLayout }) {
                     {selected.occupant?.stale && (
                       <Badge variant="destructive" className="gap-1">
                         <AlertTriangle className="h-3 w-3" /> Reading overdue
+                      </Badge>
+                    )}
+                    {selected.occupant?.hasDeviation && (
+                      <Badge variant="destructive" className="gap-1">
+                        <AlertTriangle className="h-3 w-3" /> Deviation flagged
                       </Badge>
                     )}
                     <Badge variant={selected.occupant ? "default" : "outline"}>
@@ -345,7 +356,7 @@ export function LayoutView({ layout }: { layout: BedLayout }) {
                         onClick={() => setSelectedId(b.id)}
                         className={`rounded px-1.5 py-0.5 font-mono text-xs transition-colors ${
                           b.occupant
-                            ? b.occupant.stale
+                            ? b.occupant.stale || b.occupant.hasDeviation
                               ? "bg-amber-500 text-white"
                               : "bg-emerald-600 text-white"
                             : "border border-border text-muted-foreground hover:bg-accent"

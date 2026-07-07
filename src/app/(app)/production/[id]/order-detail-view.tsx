@@ -13,6 +13,7 @@ import {
   Ban,
   PackageCheck,
   MapPin,
+  AlertTriangle,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -233,7 +234,12 @@ export function OrderDetailView({
                     {stageReadingRows.length > 0 && (
                       <div className="mt-1.5 flex flex-wrap gap-1.5">
                         {stageReadingRows.map((r) => (
-                          <Badge key={r.id} variant="secondary" className="font-mono text-xs">
+                          <Badge
+                            key={r.id}
+                            variant={r.isDeviation ? "destructive" : "secondary"}
+                            className="font-mono text-xs"
+                          >
+                            {r.isDeviation && <AlertTriangle className="mr-1 h-3 w-3" />}
                             {r.parameter} {r.value}
                             {r.unit ?? ""}
                           </Badge>
@@ -432,6 +438,12 @@ function ReadingDialog({
       <div className="space-y-2">
         <Label htmlFor="rd-notes">Notes</Label>
         <Textarea id="rd-notes" name="notes" rows={2} />
+      </div>
+      <div className="flex items-center gap-2">
+        <input id="rd-deviation" name="isDeviation" type="checkbox" className="h-4 w-4" />
+        <Label htmlFor="rd-deviation" className="font-normal">
+          This is a deviation (out of expected range)
+        </Label>
       </div>
     </FormDialog>
   );

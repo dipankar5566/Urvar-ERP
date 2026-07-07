@@ -95,6 +95,7 @@ export function getBatchDetail(batchId: number) {
       parameter: stageReadings.parameter,
       value: stageReadings.value,
       unit: stageReadings.unit,
+      isDeviation: stageReadings.isDeviation,
       recordedAt: stageReadings.recordedAt,
       recordedByName: users.name,
     })

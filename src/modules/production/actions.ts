@@ -131,7 +131,11 @@ export async function startProductionOrder(orderId: number): Promise<ActionResul
         const item = db.select().from(items).where(eq(items.id, line.itemId)).get()!;
         let remaining = line.qtyPerOutput * multiplier;
 
-        // FIFO across lots with stock in this warehouse
+        // FIFO across lots with stock in this warehouse. Rejected lots are
+        // excluded — pending (not yet inspected) lots stay usable, since
+        // requiring inspection before use would block every order today
+        // (nothing has been inspected yet). Only a failed inspection stops
+        // material from being consumed.
         const lotRows = db
           .select({
             lotId: lots.id,
@@ -143,7 +147,8 @@ export async function startProductionOrder(orderId: number): Promise<ActionResul
             and(
               eq(stockBalances.itemId, line.itemId),
               eq(stockBalances.warehouseId, order.warehouseId),
-              sql`${stockBalances.qty} > 1e-9`
+              sql`${stockBalances.qty} > 1e-9`,
+              sql`${lots.qcStatus} != 'rejected'`
             )
           )
           .orderBy(asc(lots.receivedDate), asc(lots.id))
@@ -298,6 +303,7 @@ const readingSchema = z.object({
   value: z.coerce.number(),
   unit: z.string().trim().optional(),
   notes: z.string().trim().optional(),
+  isDeviation: z.coerce.boolean().default(false),
 });
 
 export async function recordReading(formData: FormData): Promise<ActionResult> {
@@ -305,6 +311,7 @@ export async function recordReading(formData: FormData): Promise<ActionResult> {
     const user = await requireUser();
     const raw = Object.fromEntries(formData);
     if (raw.bedId === "") delete raw.bedId;
+    raw.isDeviation = raw.isDeviation === "on" || raw.isDeviation === "true" ? "true" : "";
     const data = readingSchema.parse(raw);
 
     const stage = db.select().from(orderStages).where(eq(orderStages.id, data.stageId)).get();
@@ -343,6 +350,7 @@ export async function recordReading(formData: FormData): Promise<ActionResult> {
           value: data.value,
           unit: data.unit || defaultUnits[data.parameter] || null,
           notes: data.notes,
+          isDeviation: data.isDeviation,
           recordedBy: user.id,
         })
         .run();

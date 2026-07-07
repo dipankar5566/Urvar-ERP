@@ -15,6 +15,7 @@ import {
   Menu,
   Moon,
   Sun,
+  ShieldCheck,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
@@ -26,6 +27,7 @@ const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/production", label: "Production", icon: Factory },
   { href: "/layout-map", label: "Site Layout", icon: Map },
+  { href: "/quality", label: "Quality", icon: ShieldCheck },
   { href: "/batches", label: "Batches", icon: Layers },
   { href: "/inventory", label: "Inventory", icon: Boxes },
   { href: "/masters", label: "Masters", icon: Settings2, adminOnly: true },

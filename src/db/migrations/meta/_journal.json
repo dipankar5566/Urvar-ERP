@@ -29,6 +29,13 @@
       "when": 1783440853125,
       "tag": "0003_add_bed_id_and_assigned_at",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1783447145491,
+      "tag": "0004_add_qc_phase2",
+      "breakpoints": true
     }
   ]
 }

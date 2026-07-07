@@ -14,6 +14,8 @@ import {
 import { requireUser } from "@/lib/session";
 import { getBatchDetail } from "@/modules/batches/queries";
 import { QC_BADGE } from "@/modules/batches/badges";
+import { getBatchTestResults } from "@/modules/quality/queries";
+import { BatchQcSection } from "./batch-qc-section";
 import { fmtDateTime } from "@/lib/dates";
 
 export default async function BatchDetailPage(props: PageProps<"/batches/[id]">) {
@@ -24,6 +26,7 @@ export default async function BatchDetailPage(props: PageProps<"/batches/[id]">)
 
   const { batch, inputs, stages, readings, currentStock } = detail;
   const qc = QC_BADGE[batch.qcStatus];
+  const testResults = getBatchTestResults(batch.id);
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -52,6 +55,8 @@ export default async function BatchDetailPage(props: PageProps<"/batches/[id]">)
         <Stat label="Warehouse" value={batch.warehouseName} />
         <Stat label="In Stock" value={`${Number(currentStock.toFixed(3))} ${batch.uom}`} />
       </div>
+
+      <BatchQcSection batchId={batch.id} qcStatus={batch.qcStatus} results={testResults} />
 
       <Card className="mt-6">
         <CardHeader>
@@ -120,7 +125,11 @@ export default async function BatchDetailPage(props: PageProps<"/batches/[id]">)
                     {stageReadingRows.length > 0 && (
                       <span className="ml-2 space-x-1">
                         {stageReadingRows.map((r) => (
-                          <Badge key={r.id} variant="secondary" className="font-mono text-xs">
+                          <Badge
+                            key={r.id}
+                            variant={r.isDeviation ? "destructive" : "secondary"}
+                            className="font-mono text-xs"
+                          >
                             {r.parameter} {r.value}
                             {r.unit ?? ""}
                           </Badge>

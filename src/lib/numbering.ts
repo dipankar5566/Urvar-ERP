@@ -12,10 +12,15 @@ function yymmdd(date = new Date()): string {
   return `${yymm(date)}${String(date.getDate()).padStart(2, "0")}`;
 }
 
-export function nextDocNumber(prefix: "LOT" | "PO", date = new Date()): string {
+const DOC_NUMBER_TARGETS = {
+  LOT: { table: "lots", column: "lot_no" },
+  PO: { table: "production_orders", column: "order_no" },
+  CAPA: { table: "capas", column: "capa_no" },
+} as const;
+
+export function nextDocNumber(prefix: keyof typeof DOC_NUMBER_TARGETS, date = new Date()): string {
   const period = yymm(date);
-  const table = prefix === "LOT" ? "lots" : "production_orders";
-  const column = prefix === "LOT" ? "lot_no" : "order_no";
+  const { table, column } = DOC_NUMBER_TARGETS[prefix];
   const pattern = `${prefix}-${period}-%`;
   const row = sqlite
     .prepare(`SELECT COUNT(*) as n FROM ${table} WHERE ${column} LIKE ?`)

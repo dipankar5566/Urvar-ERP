@@ -89,6 +89,7 @@ export function getOrderDetail(orderId: number) {
       value: stageReadings.value,
       unit: stageReadings.unit,
       notes: stageReadings.notes,
+      isDeviation: stageReadings.isDeviation,
       recordedAt: stageReadings.recordedAt,
       recordedByName: users.name,
     })

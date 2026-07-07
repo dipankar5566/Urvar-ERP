@@ -77,6 +77,24 @@ export function getDashboardData() {
     mfgDate: string;
   }[];
 
+  const pendingInspections = sqlite
+    .prepare(`SELECT count(*) as n FROM lots WHERE qc_status = 'pending'`)
+    .get() as { n: number };
+
+  const batchesAwaitingQC = sqlite
+    .prepare(
+      `SELECT count(*) as n FROM batches WHERE qc_status IN ('pending', 'sample_collected', 'testing')`
+    )
+    .get() as { n: number };
+
+  const batchesOnHold = sqlite
+    .prepare(`SELECT count(*) as n FROM batches WHERE qc_status = 'hold'`)
+    .get() as { n: number };
+
+  const openCapas = sqlite
+    .prepare(`SELECT count(*) as n FROM capas WHERE status != 'closed'`)
+    .get() as { n: number };
+
   return {
     todayProduction: todayProduction.qty,
     monthProduction: monthProduction.qty,
@@ -85,6 +103,10 @@ export function getDashboardData() {
     activeOrders,
     lowStock,
     recentBatches,
+    pendingInspections: pendingInspections.n,
+    batchesAwaitingQC: batchesAwaitingQC.n,
+    batchesOnHold: batchesOnHold.n,
+    openCapas: openCapas.n,
   };
 }
 
