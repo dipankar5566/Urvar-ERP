@@ -49,14 +49,30 @@ curl -H "Cookie: urvar_session=$COOKIE" http://localhost:PORT/dashboard
 - **Playwright selectors**: `text=Foo` matches substrings anywhere (including body copy).
   Use `button:has-text('Foo')` for buttons.
 - **New Order dialog**: the default product is alphabetical (Cow Dung FYM) which has no
-  formula — the required-but-empty formula `<select>` blocks native form submission
-  silently. Select "Vermicompost" first.
+  formula/workflow template — the required-but-empty `<select>`s block native form
+  submission *silently* (no toast, dialog just stays open). Always `selectOption`
+  "Vermicompost" first, then **wait for the dependent selects to repopulate** before
+  filling the rest — after `selectOption("#po-product", ...)`, do
+  `page.waitForFunction(() => document.querySelector("#po-formula")?.value !== "")`.
+  Playwright's `selectOption` returns before React commits the re-render of sibling
+  selects (formula/template), so filling qty immediately after is a race that submits
+  with an empty required field.
+- **Never manually delete/recreate the SQLite file while `npm run dev` is running.**
+  better-sqlite3 keeps its fd open; on Unix the process keeps reading the old unlinked
+  inode, so the server silently serves stale (pre-reset) data until restarted. If you
+  need a clean DB (`rm data/urvar.db*` + migrate + seed), **restart the dev server
+  afterward** — `TaskStop` the background task, then `npm run dev` again.
 - **FormDialog only closes on success.** A dialog still open after submit = the action
-  failed; the base-ui overlay then swallows all page clicks (Playwright timeouts on
-  unrelated elements usually mean a stuck dialog).
+  failed (or a required field blocked it, see above); the base-ui overlay then swallows
+  all page clicks (Playwright timeouts on unrelated elements usually mean a stuck dialog).
 - **Server errors** don't always toast; check the dev-server output file for stack traces.
 - **Never import values from a `"use client"` module into a server component** — they
   arrive as client-reference proxies (undefined lookups). Shared constants live in plain
   modules like `src/modules/batches/badges.ts`.
 - Timestamps are stored UTC; display goes through `fmtDateTime` (`src/lib/dates.ts`).
   Date-only stamps must use `localDateISO`, never `toISOString().slice(0,10)` (IST rollback bug).
+- **Masters → Formulas/Workflows edit dialogs**: double-check the Product dropdown
+  before saving — picking the wrong product here breaks order creation for every other
+  product silently downstream (their dependent selects go empty, see above). Sanity
+  check after any Masters edit: `sqlite3 data/urvar.db "select f.name, p.name from
+  formulas f join products p on p.id=f.product_id;"` should read sensibly.

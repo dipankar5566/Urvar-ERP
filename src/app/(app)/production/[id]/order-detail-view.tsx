@@ -12,6 +12,7 @@ import {
   Thermometer,
   Ban,
   PackageCheck,
+  MapPin,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,21 +22,46 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { FormDialog, NativeSelect } from "@/components/form-dialog";
 import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
   startProductionOrder,
   completeStage,
   recordReading,
   completeProductionOrder,
   cancelProductionOrder,
 } from "@/modules/production/actions";
+import { assignBeds } from "@/modules/layout/actions";
 import type { OrderDetail } from "@/modules/production/queries";
 import { STATUS_BADGE } from "../production-view";
 import { fmtDateTime } from "@/lib/dates";
 
-export function OrderDetailView({ detail }: { detail: OrderDetail }) {
+type BedOption = {
+  id: number;
+  code: string;
+  available: boolean;
+  occupantOrderNo: string | null;
+};
+
+export function OrderDetailView({
+  detail,
+  bedOptions,
+  assignedBedIds,
+}: {
+  detail: OrderDetail;
+  bedOptions: BedOption[];
+  assignedBedIds: number[];
+}) {
   const { order, stages, readings, batch } = detail;
   const [pending, startTransition] = useTransition();
   const badge = STATUS_BADGE[order.status];
   const activeStage = stages.find((s) => s.status === "in_progress");
+  const assignedCodes = bedOptions.filter((b) => assignedBedIds.includes(b.id)).map((b) => b.code);
 
   function run(fn: () => Promise<{ ok: boolean; error?: string }>, successMsg: string) {
     startTransition(async () => {
@@ -64,6 +90,25 @@ export function OrderDetailView({ detail }: { detail: OrderDetail }) {
             {order.productName} — {order.targetQty} {order.uom} · {order.formulaName} ·{" "}
             {order.warehouseName} · Supervisor: {order.supervisorName}
           </p>
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-sm">
+            <span className="text-muted-foreground">Beds:</span>
+            {assignedCodes.length > 0 ? (
+              assignedCodes.map((c) => (
+                <Badge key={c} variant="secondary" className="font-mono text-xs">
+                  {c}
+                </Badge>
+              ))
+            ) : (
+              <span className="text-muted-foreground">none assigned</span>
+            )}
+            {(order.status === "draft" || order.status === "in_progress") && (
+              <BedAssignDialog
+                orderId={order.id}
+                bedOptions={bedOptions}
+                assignedBedIds={assignedBedIds}
+              />
+            )}
+          </div>
           {order.remarks && <p className="mt-1 text-sm text-muted-foreground">{order.remarks}</p>}
         </div>
 
@@ -225,6 +270,103 @@ export function OrderDetailView({ detail }: { detail: OrderDetail }) {
         </Card>
       )}
     </div>
+  );
+}
+
+function BedAssignDialog({
+  orderId,
+  bedOptions,
+  assignedBedIds,
+}: {
+  orderId: number;
+  bedOptions: BedOption[];
+  assignedBedIds: number[];
+}) {
+  const [open, setOpen] = useState(false);
+  const [pending, startTransition] = useTransition();
+  const [selected, setSelected] = useState<Set<number>>(new Set(assignedBedIds));
+
+  function toggle(id: number) {
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelected(next);
+  }
+
+  function save() {
+    startTransition(async () => {
+      const result = await assignBeds(orderId, [...selected]);
+      if (result.ok) {
+        toast.success("Beds assigned");
+        setOpen(false);
+      } else {
+        toast.error(result.error ?? "Failed");
+      }
+    });
+  }
+
+  const zones = [...new Set(bedOptions.map((b) => b.code.split("-")[0]))];
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger
+        render={
+          <span>
+            <Button size="sm" variant="ghost" className="h-6 px-2 text-xs">
+              <MapPin className="mr-1 h-3 w-3" /> Assign
+            </Button>
+          </span>
+        }
+        nativeButton={false}
+      />
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Assign Beds</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          {zones.map((zone) => (
+            <div key={zone}>
+              <div className="mb-1.5 text-sm font-medium">{zone === "Z1" ? "Zone 1" : "Zone 2"}</div>
+              <div className="flex flex-wrap gap-1.5">
+                {bedOptions
+                  .filter((b) => b.code.startsWith(zone))
+                  .map((b) => {
+                    const isSelected = selected.has(b.id);
+                    const disabled = !b.available;
+                    return (
+                      <button
+                        key={b.id}
+                        type="button"
+                        disabled={disabled}
+                        title={disabled ? `Occupied by ${b.occupantOrderNo}` : b.code}
+                        onClick={() => toggle(b.id)}
+                        className={`rounded-md border px-2 py-1 font-mono text-xs transition-colors ${
+                          disabled
+                            ? "cursor-not-allowed border-border bg-muted text-muted-foreground/50 line-through"
+                            : isSelected
+                              ? "border-emerald-700 bg-emerald-600 text-white"
+                              : "border-border hover:bg-accent"
+                        }`}
+                      >
+                        {b.code}
+                      </button>
+                    );
+                  })}
+              </div>
+            </div>
+          ))}
+          <p className="text-xs text-muted-foreground">
+            {selected.size} bed{selected.size === 1 ? "" : "s"} selected. Struck-out beds are
+            occupied by other orders.
+          </p>
+          <DialogFooter>
+            <Button onClick={save} disabled={pending}>
+              {pending ? "Saving…" : "Save Assignment"}
+            </Button>
+          </DialogFooter>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

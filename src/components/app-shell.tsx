@@ -6,6 +6,7 @@ import { useState } from "react";
 import {
   Factory,
   LayoutDashboard,
+  Map,
   Boxes,
   Package,
   Layers,
@@ -24,6 +25,7 @@ import type { SessionUser } from "@/lib/session";
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/production", label: "Production", icon: Factory },
+  { href: "/layout-map", label: "Site Layout", icon: Map },
   { href: "/batches", label: "Batches", icon: Layers },
   { href: "/inventory", label: "Inventory", icon: Boxes },
   { href: "/masters", label: "Masters", icon: Settings2, adminOnly: true },

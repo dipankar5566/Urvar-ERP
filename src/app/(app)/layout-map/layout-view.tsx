@@ -1,0 +1,245 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import Link from "next/link";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import {
+  PLOT_BOUNDARY,
+  ZONE1_POLY,
+  ZONE2_POLY,
+  STRIP_POLY,
+  type Pt,
+} from "@/modules/layout/site-geometry";
+import type { BedLayout, LayoutBed } from "@/modules/layout/queries";
+import { fmtDateTime } from "@/lib/dates";
+
+// Site-plan feet → SVG px. y is flipped (plan y grows north, SVG y grows down).
+const PAD = 14;
+const SCALE = 2.4;
+
+const xs = PLOT_BOUNDARY.map((p) => p[0]);
+const ys = PLOT_BOUNDARY.map((p) => p[1]);
+const minX = Math.min(...xs);
+const maxY = Math.max(...ys);
+const W = (Math.max(...xs) - minX) * SCALE + PAD * 2;
+const H = (maxY - Math.min(...ys)) * SCALE + PAD * 2;
+
+function px(p: Pt): [number, number] {
+  return [(p[0] - minX) * SCALE + PAD, (maxY - p[1]) * SCALE + PAD];
+}
+
+function poly(points: Pt[]): string {
+  return points.map((p) => px(p).join(",")).join(" ");
+}
+
+export function LayoutView({ layout }: { layout: BedLayout }) {
+  const [selected, setSelected] = useState<LayoutBed | null>(null);
+
+  const occupiedCount = layout.beds.filter((b) => b.occupant).length;
+
+  const bedRects = useMemo(
+    () =>
+      layout.beds.map((b) => {
+        const w = b.orientation === "h" ? b.lengthFt : b.widthFt;
+        const h = b.orientation === "h" ? b.widthFt : b.lengthFt;
+        const [x, y] = px([b.posX, b.posY]);
+        return { bed: b, x, y, w: w * SCALE, h: h * SCALE };
+      }),
+    [layout.beds]
+  );
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold">Site Layout</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Kisanbandhu plant — {layout.beds.length} vermicompost beds ({occupiedCount} occupied).
+            Click a bed for details.
+          </p>
+        </div>
+        <div className="flex items-center gap-4 text-sm">
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-3 w-3 rounded-sm border border-border bg-muted" /> Empty
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-3 w-3 rounded-sm bg-emerald-600" /> Composting
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-6 grid gap-4 lg:grid-cols-[1fr_280px]">
+        <Card>
+          <CardContent className="p-2 sm:p-4">
+            <div className="overflow-x-auto">
+              <svg
+                viewBox={`0 0 ${W} ${H}`}
+                className="mx-auto h-auto w-full max-w-3xl"
+                role="img"
+                aria-label="Site layout with vermicompost beds"
+              >
+                {/* Plot boundary */}
+                <polygon
+                  points={poly(PLOT_BOUNDARY)}
+                  className="fill-muted/30 stroke-foreground/60"
+                  strokeWidth="1.5"
+                />
+                {/* Access strip */}
+                <polygon
+                  points={poly(STRIP_POLY)}
+                  className="fill-muted/50 stroke-foreground/20"
+                  strokeWidth="0.75"
+                />
+                {/* Zones */}
+                <polygon
+                  points={poly(ZONE1_POLY)}
+                  className="fill-emerald-500/10 stroke-emerald-600/50"
+                  strokeWidth="1"
+                />
+                <polygon
+                  points={poly(ZONE2_POLY)}
+                  className="fill-orange-500/10 stroke-orange-600/50"
+                  strokeWidth="1"
+                />
+
+                {/* Zone labels */}
+                <text x={px([150, 108])[0]} y={px([150, 108])[1]} className="fill-emerald-700 dark:fill-emerald-500 text-[13px] font-semibold">
+                  Zone 1 · 10 beds
+                </text>
+                <text x={px([-58, -190])[0]} y={px([-58, -190])[1]} className="fill-orange-700 dark:fill-orange-500 text-[13px] font-semibold">
+                  Zone 2 · 15 beds
+                </text>
+
+                {/* Beds */}
+                {bedRects.map(({ bed, x, y, w, h }) => {
+                  const occupied = !!bed.occupant;
+                  const isSelected = selected?.id === bed.id;
+                  return (
+                    <g
+                      key={bed.id}
+                      onClick={() => setSelected(bed)}
+                      className="cursor-pointer"
+                      role="button"
+                      aria-label={`Bed ${bed.code}${occupied ? `, occupied by ${bed.occupant!.orderNo}` : ", empty"}`}
+                    >
+                      {/* generous hit target */}
+                      <rect x={x - 3} y={y - 3} width={w + 6} height={h + 6} fill="transparent" />
+                      <rect
+                        x={x}
+                        y={y}
+                        width={w}
+                        height={h}
+                        rx={2}
+                        className={
+                          occupied
+                            ? "fill-emerald-600 stroke-emerald-700"
+                            : "fill-background stroke-foreground/40"
+                        }
+                        strokeWidth={isSelected ? 2.5 : 1}
+                      />
+                      {isSelected && (
+                        <rect
+                          x={x - 2}
+                          y={y - 2}
+                          width={w + 4}
+                          height={h + 4}
+                          rx={3}
+                          fill="none"
+                          className="stroke-primary"
+                          strokeWidth="1.5"
+                        />
+                      )}
+                    </g>
+                  );
+                })}
+              </svg>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Detail panel */}
+        <div className="space-y-3">
+          {selected ? (
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between">
+                  <h2 className="font-semibold">{selected.code}</h2>
+                  <Badge variant={selected.occupant ? "default" : "outline"}>
+                    {selected.occupant ? "Composting" : "Empty"}
+                  </Badge>
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {selected.lengthFt}′ × {selected.widthFt}′ ·{" "}
+                  {layout.zones.find((z) => z.id === selected.zoneId)?.name}
+                </p>
+                {selected.occupant ? (
+                  <div className="mt-3 space-y-1 text-sm">
+                    <div>
+                      Order{" "}
+                      <Link
+                        href={`/production/${selected.occupant.orderId}`}
+                        className="font-medium text-primary hover:underline"
+                      >
+                        {selected.occupant.orderNo}
+                      </Link>
+                    </div>
+                    <div className="text-muted-foreground">{selected.occupant.productName}</div>
+                    {selected.occupant.startedAt && (
+                      <div className="text-xs text-muted-foreground">
+                        Started {fmtDateTime(selected.occupant.startedAt)}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="mt-3 text-sm text-muted-foreground">
+                    Assign this bed from a production order&apos;s detail page.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardContent className="pt-6 text-sm text-muted-foreground">
+                Select a bed on the map to see its status and current order.
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Zone summary */}
+          {layout.zones.map((z) => {
+            const zoneBeds = layout.beds.filter((b) => b.zoneId === z.id);
+            const used = zoneBeds.filter((b) => b.occupant).length;
+            return (
+              <Card key={z.id}>
+                <CardContent className="pt-6">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="font-medium">{z.name}</span>
+                    <span className="text-muted-foreground">
+                      {used}/{zoneBeds.length} beds in use
+                    </span>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {zoneBeds.map((b) => (
+                      <button
+                        key={b.id}
+                        onClick={() => setSelected(b)}
+                        className={`rounded px-1.5 py-0.5 font-mono text-xs transition-colors ${
+                          b.occupant
+                            ? "bg-emerald-600 text-white"
+                            : "border border-border text-muted-foreground hover:bg-accent"
+                        } ${selected?.id === b.id ? "ring-2 ring-primary" : ""}`}
+                      >
+                        {b.code.split("-")[1]}
+                      </button>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}

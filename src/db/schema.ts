@@ -83,6 +83,32 @@ export const workflowTemplateStages = sqliteTable(
   (t) => [uniqueIndex("wts_template_seq").on(t.templateId, t.seq)]
 );
 
+// ---------- Zones & Beds (site layout) ----------
+
+export const zones = sqliteTable("zones", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  code: text("code").notNull().unique(), // Z1, Z2
+  name: text("name").notNull(),
+  active: integer("active", { mode: "boolean" }).notNull().default(true),
+});
+
+export const beds = sqliteTable(
+  "beds",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    zoneId: integer("zone_id").notNull().references(() => zones.id),
+    code: text("code").notNull().unique(), // Z1-01 … Z2-15
+    lengthFt: real("length_ft").notNull(),
+    widthFt: real("width_ft").notNull(),
+    // Bed top-left corner on the site plan, in feet (y increases northward).
+    posX: real("pos_x").notNull(),
+    posY: real("pos_y").notNull(),
+    orientation: text("orientation", { enum: ["h", "v"] }).notNull(), // h: length runs E-W
+    active: integer("active", { mode: "boolean" }).notNull().default(true),
+  },
+  (t) => [index("beds_zone").on(t.zoneId)]
+);
+
 // ---------- Production ----------
 
 export const productionOrders = sqliteTable("production_orders", {
@@ -146,6 +172,20 @@ export const stageReadings = sqliteTable(
     recordedAt: text("recorded_at").notNull().default(sql`(datetime('now'))`),
   },
   (t) => [index("sr_stage").on(t.orderStageId)]
+);
+
+// Which beds a production order occupies. A bed is "occupied" while its
+// order is in_progress; completing or cancelling the order frees it.
+export const orderBeds = sqliteTable(
+  "order_beds",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    orderId: integer("order_id")
+      .notNull()
+      .references(() => productionOrders.id, { onDelete: "cascade" }),
+    bedId: integer("bed_id").notNull().references(() => beds.id),
+  },
+  (t) => [uniqueIndex("ob_order_bed").on(t.orderId, t.bedId), index("ob_bed").on(t.bedId)]
 );
 
 // ---------- Traceability ----------

@@ -8,6 +8,13 @@
       "when": 1783368034146,
       "tag": "0000_petite_turbo",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1783404739649,
+      "tag": "0001_curved_silver_sable",
+      "breakpoints": true
     }
   ]
 }
