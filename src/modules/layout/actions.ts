@@ -50,10 +50,27 @@ export async function assignBeds(orderId: number, bedIds: number[]): Promise<Act
         }
       }
 
-      db.delete(orderBeds).where(eq(orderBeds.orderId, orderId)).run();
-      if (bedIds.length > 0) {
+      // Diff against the current assignment rather than delete+reinsert
+      // everything, so beds that stay assigned keep their original
+      // assignedAt (and therefore an accurate "days in bed" on the map).
+      const current = db
+        .select({ bedId: orderBeds.bedId })
+        .from(orderBeds)
+        .where(eq(orderBeds.orderId, orderId))
+        .all()
+        .map((r) => r.bedId);
+
+      const toRemove = current.filter((id) => !bedIds.includes(id));
+      const toAdd = bedIds.filter((id) => !current.includes(id));
+
+      if (toRemove.length > 0) {
+        db.delete(orderBeds)
+          .where(and(eq(orderBeds.orderId, orderId), inArray(orderBeds.bedId, toRemove)))
+          .run();
+      }
+      if (toAdd.length > 0) {
         db.insert(orderBeds)
-          .values(bedIds.map((bedId) => ({ orderId, bedId })))
+          .values(toAdd.map((bedId) => ({ orderId, bedId })))
           .run();
       }
 
@@ -66,7 +83,7 @@ export async function assignBeds(orderId: number, bedIds: number[]): Promise<Act
       });
     });
 
-    revalidatePath("/layout");
+    revalidatePath("/layout-map");
     revalidatePath("/production");
     revalidatePath(`/production/${orderId}`);
     return { ok: true };

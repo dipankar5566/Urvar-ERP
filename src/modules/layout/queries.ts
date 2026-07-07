@@ -1,27 +1,90 @@
 import { asc, eq } from "drizzle-orm";
-import { db } from "@/db";
-import { zones, beds, orderBeds, productionOrders, products } from "@/db/schema";
+import { db, sqlite } from "@/db";
+import { zones, beds, orderBeds } from "@/db/schema";
+import { parseStoredDate } from "@/lib/dates";
+
+const STALE_READING_HOURS = 24;
+
+type OccupancyRow = {
+  bedId: number;
+  orderId: number;
+  orderNo: string;
+  productName: string;
+  assignedAt: string;
+  stageName: string | null;
+  stageRequiresReadings: number | null;
+  readingParameter: string | null;
+  readingValue: number | null;
+  readingUnit: string | null;
+  readingRecordedAt: string | null;
+};
 
 export function getBedLayout() {
   const zoneRows = db.select().from(zones).orderBy(asc(zones.code)).all();
   const bedRows = db.select().from(beds).orderBy(asc(beds.code)).all();
 
-  // Beds occupied by in-progress orders
-  const occupancy = db
-    .select({
-      bedId: orderBeds.bedId,
-      orderId: productionOrders.id,
-      orderNo: productionOrders.orderNo,
-      productName: products.name,
-      startedAt: productionOrders.startedAt,
-    })
-    .from(orderBeds)
-    .innerJoin(productionOrders, eq(orderBeds.orderId, productionOrders.id))
-    .innerJoin(products, eq(productionOrders.productId, products.id))
-    .where(eq(productionOrders.status, "in_progress"))
-    .all();
+  // One row per occupied bed: its order, current in-progress stage, and
+  // that bed's own most recent reading within the current stage.
+  const occupancy = sqlite
+    .prepare(
+      `SELECT
+         ob.bed_id as bedId,
+         po.id as orderId,
+         po.order_no as orderNo,
+         pr.name as productName,
+         ob.assigned_at as assignedAt,
+         os.name as stageName,
+         os.requires_readings as stageRequiresReadings,
+         sr.parameter as readingParameter,
+         sr.value as readingValue,
+         sr.unit as readingUnit,
+         sr.recorded_at as readingRecordedAt
+       FROM order_beds ob
+       JOIN production_orders po ON po.id = ob.order_id
+       JOIN products pr ON pr.id = po.product_id
+       LEFT JOIN order_stages os ON os.order_id = po.id AND os.status = 'in_progress'
+       LEFT JOIN stage_readings sr ON sr.id = (
+         SELECT sr2.id FROM stage_readings sr2
+         WHERE sr2.bed_id = ob.bed_id AND sr2.order_stage_id = os.id
+         ORDER BY sr2.recorded_at DESC, sr2.id DESC
+         LIMIT 1
+       )
+       WHERE po.status = 'in_progress'`
+    )
+    .all() as OccupancyRow[];
 
-  const occupiedBy = new Map(occupancy.map((o) => [o.bedId, o]));
+  const now = Date.now();
+  const occupiedBy = new Map(
+    occupancy.map((o) => {
+      const daysInBed = Math.floor((now - parseStoredDate(o.assignedAt).getTime()) / 86_400_000);
+      const requiresReadings = !!o.stageRequiresReadings;
+      const readingAgeHours = o.readingRecordedAt
+        ? (now - parseStoredDate(o.readingRecordedAt).getTime()) / 3_600_000
+        : null;
+      const stale = requiresReadings && (readingAgeHours === null || readingAgeHours > STALE_READING_HOURS);
+
+      return [
+        o.bedId,
+        {
+          orderId: o.orderId,
+          orderNo: o.orderNo,
+          productName: o.productName,
+          assignedAt: o.assignedAt,
+          daysInBed: Math.max(daysInBed, 0),
+          stageName: o.stageName,
+          stale,
+          latestReading: o.readingParameter
+            ? {
+                parameter: o.readingParameter,
+                value: o.readingValue!,
+                unit: o.readingUnit,
+                recordedAt: o.readingRecordedAt!,
+              }
+            : null,
+        },
+      ] as const;
+    })
+  );
 
   return {
     zones: zoneRows,

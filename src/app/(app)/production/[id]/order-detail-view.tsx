@@ -206,7 +206,12 @@ export function OrderDetailView({
                       )}
                       {isActive && (
                         <div className="ml-auto flex gap-1.5">
-                          {stage.requiresReadings && <ReadingDialog stageId={stage.id} />}
+                          {stage.requiresReadings && (
+                            <ReadingDialog
+                              stageId={stage.id}
+                              assignedBeds={bedOptions.filter((b) => assignedBedIds.includes(b.id))}
+                            />
+                          )}
                           <Button
                             size="sm"
                             variant="outline"
@@ -370,7 +375,13 @@ function BedAssignDialog({
   );
 }
 
-function ReadingDialog({ stageId }: { stageId: number }) {
+function ReadingDialog({
+  stageId,
+  assignedBeds,
+}: {
+  stageId: number;
+  assignedBeds: BedOption[];
+}) {
   const [parameter, setParameter] = useState("temperature");
   return (
     <FormDialog
@@ -384,6 +395,19 @@ function ReadingDialog({ stageId }: { stageId: number }) {
       }
     >
       <input type="hidden" name="stageId" value={stageId} />
+      {assignedBeds.length === 1 && <input type="hidden" name="bedId" value={assignedBeds[0].id} />}
+      {assignedBeds.length >= 2 && (
+        <div className="space-y-2">
+          <Label htmlFor="rd-bed">Bed</Label>
+          <NativeSelect id="rd-bed" name="bedId" required>
+            {assignedBeds.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.code}
+              </option>
+            ))}
+          </NativeSelect>
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">
           <Label htmlFor="rd-param">Parameter</Label>

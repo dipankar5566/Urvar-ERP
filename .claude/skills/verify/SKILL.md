@@ -98,3 +98,31 @@ curl -H "Cookie: urvar_session=$COOKIE" http://localhost:PORT/dashboard
   also needs an interactive TTY to resolve rename-vs-drop+add ambiguity; in this
   environment, use `drizzle-kit generate --custom` for an empty migration file and
   hand-write the SQL instead of fighting the prompt.
+- **SQLite rejects `ALTER TABLE ... ADD COLUMN ... NOT NULL DEFAULT (datetime('now'))`**
+  ("Cannot add a column with non-constant default") — that's only a problem for
+  NOT NULL columns with a dynamic default; a nullable additive column is fine.
+  For the NOT NULL + dynamic-default case, recreate the table instead: `CREATE
+  TABLE x_new (...)`, `INSERT INTO x_new SELECT ...`, `DROP TABLE x`, `ALTER TABLE
+  x_new RENAME TO x`, then recreate its indexes.
+- **Stored timestamps come in two different formats in this app** — JS
+  `new Date().toISOString()` (`"...T...Z"`) vs SQLite's `datetime('now')` column
+  default (`"YYYY-MM-DD HH:MM:SS"`, no `T`, no `Z`, implicitly UTC). Never
+  `Date.parse` either directly — use `parseStoredDate()` / `fmtDateTime()` from
+  `src/lib/dates.ts`, which normalize both. A naive `Date.parse(x + "Z")` on the
+  SQLite format produces an invalid/unreliable date silently.
+- **Verifying "live" / polling features needs two Playwright pages, not one.**
+  Open Tab A on the page under test and never touch it again. Drive the state
+  change through Tab B (or direct DB writes) exactly like a second real user
+  would. Then `await pageA.waitForTimeout(pollIntervalMs + buffer)` with zero
+  interaction on Tab A, and assert its DOM changed. If you `reload()` or otherwise
+  touch Tab A, you've verified navigation, not polling — pattern used in
+  `realtime-verify-2.mjs`.
+- **To test a "stale/overdue" flag without a real multi-day wait**, backdate the
+  relevant row directly: `sqlite3 data/urvar.db "update <table> set <timestamp col>
+  = datetime('now','-2 days') where id=<id>"`, then reload/poll and assert the
+  warning appears; record a fresh row and assert it clears.
+- **When an action does delete-then-reinsert on a join table to "update" an
+  assignment** (e.g. replacing a set of linked rows), check whether any column
+  on that table carries meaning tied to *when the row was created* (like an
+  `assignedAt`). Delete+reinsert resets it for every row, not just the ones that
+  actually changed — diff the old vs. new set and only touch what changed.

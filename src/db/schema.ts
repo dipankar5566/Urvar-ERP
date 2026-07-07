@@ -171,10 +171,14 @@ export const stageReadings = sqliteTable(
     value: real("value").notNull(),
     unit: text("unit"), // °C, %, pH, count
     notes: text("notes"),
+    // Which specific bed this reading was taken from, when the order has
+    // beds assigned (an order can span multiple beds with different
+    // conditions). Null for orders with no bed assignment.
+    bedId: integer("bed_id").references(() => beds.id),
     recordedBy: integer("recorded_by").notNull().references(() => users.id),
     recordedAt: text("recorded_at").notNull().default(sql`(datetime('now'))`),
   },
-  (t) => [index("sr_stage").on(t.orderStageId)]
+  (t) => [index("sr_stage").on(t.orderStageId), index("sr_bed").on(t.bedId)]
 );
 
 // Which beds a production order occupies. A bed is "occupied" while its
@@ -187,6 +191,9 @@ export const orderBeds = sqliteTable(
       .notNull()
       .references(() => productionOrders.id, { onDelete: "cascade" }),
     bedId: integer("bed_id").notNull().references(() => beds.id),
+    // When this specific bed joined the order — may be later than the
+    // order's own start if a bed is added mid-run. Drives "days in bed".
+    assignedAt: text("assigned_at").notNull().default(sql`(datetime('now'))`),
   },
   (t) => [uniqueIndex("ob_order_bed").on(t.orderId, t.bedId), index("ob_bed").on(t.bedId)]
 );

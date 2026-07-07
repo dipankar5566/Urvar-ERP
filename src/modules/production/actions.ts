@@ -17,6 +17,7 @@ import {
   batchInputs,
   stockBalances,
   lots,
+  orderBeds,
 } from "@/db/schema";
 import { requireUser } from "@/lib/session";
 import { atomic, postTransaction, writeAudit } from "@/lib/ledger";
@@ -292,6 +293,7 @@ export async function completeStage(stageId: number, notes?: string): Promise<Ac
 
 const readingSchema = z.object({
   stageId: z.coerce.number().min(1),
+  bedId: z.coerce.number().min(1).optional(),
   parameter: z.enum(["temperature", "moisture", "ph", "turning", "other"]),
   value: z.coerce.number(),
   unit: z.string().trim().optional(),
@@ -301,10 +303,29 @@ const readingSchema = z.object({
 export async function recordReading(formData: FormData): Promise<ActionResult> {
   try {
     const user = await requireUser();
-    const data = readingSchema.parse(Object.fromEntries(formData));
+    const raw = Object.fromEntries(formData);
+    if (raw.bedId === "") delete raw.bedId;
+    const data = readingSchema.parse(raw);
 
     const stage = db.select().from(orderStages).where(eq(orderStages.id, data.stageId)).get();
     if (!stage) return { ok: false, error: "Stage not found" };
+
+    // If the order has beds assigned, the reading must name which one.
+    const assignedBedIds = db
+      .select({ bedId: orderBeds.bedId })
+      .from(orderBeds)
+      .where(eq(orderBeds.orderId, stage.orderId))
+      .all()
+      .map((r) => r.bedId);
+
+    if (assignedBedIds.length > 0) {
+      if (!data.bedId) {
+        return { ok: false, error: "Select which bed this reading is for" };
+      }
+      if (!assignedBedIds.includes(data.bedId)) {
+        return { ok: false, error: "That bed is not assigned to this order" };
+      }
+    }
 
     const defaultUnits: Record<string, string> = {
       temperature: "°C",
@@ -317,6 +338,7 @@ export async function recordReading(formData: FormData): Promise<ActionResult> {
       db.insert(stageReadings)
         .values({
           orderStageId: data.stageId,
+          bedId: assignedBedIds.length > 0 ? data.bedId : null,
           parameter: data.parameter,
           value: data.value,
           unit: data.unit || defaultUnits[data.parameter] || null,
@@ -327,6 +349,7 @@ export async function recordReading(formData: FormData): Promise<ActionResult> {
     });
 
     revalidatePath("/production");
+    revalidatePath("/layout-map");
     return { ok: true };
   } catch (e) {
     return fail(e);

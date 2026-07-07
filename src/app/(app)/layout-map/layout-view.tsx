@@ -1,7 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { AlertTriangle, RadioTower } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -14,6 +16,8 @@ import {
 } from "@/modules/layout/site-geometry";
 import type { BedLayout, LayoutBed } from "@/modules/layout/queries";
 import { fmtDateTime } from "@/lib/dates";
+
+const POLL_INTERVAL_MS = 20_000;
 
 // Site-plan feet → SVG px. y is flipped (plan y grows north, SVG y grows down).
 const PAD = 14;
@@ -35,7 +39,29 @@ function poly(points: Pt[]): string {
 }
 
 export function LayoutView({ layout }: { layout: BedLayout }) {
-  const [selected, setSelected] = useState<LayoutBed | null>(null);
+  const router = useRouter();
+  // Track the selected bed by id, not the object itself — the object goes
+  // stale the moment a poll brings fresh data, since it's a snapshot from
+  // whenever it was clicked.
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const selected = layout.beds.find((b) => b.id === selectedId) ?? null;
+
+  // Auto-refresh: re-run the server component on an interval so the map
+  // reflects production activity without a manual reload.
+  const [lastUpdated, setLastUpdated] = useState(() => Date.now());
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    const poll = setInterval(() => router.refresh(), POLL_INTERVAL_MS);
+    return () => clearInterval(poll);
+  }, [router]);
+  useEffect(() => {
+    setLastUpdated(Date.now());
+  }, [layout]);
+  useEffect(() => {
+    const tick = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(tick);
+  }, []);
+  const secondsAgo = Math.max(0, Math.round((nowTick - lastUpdated) / 1000));
 
   const occupiedCount = layout.beds.filter((b) => b.occupant).length;
   const zone1Count = layout.beds.filter((b) => b.zoneId === layout.zones.find((z) => z.code === "Z1")?.id).length;
@@ -58,7 +84,8 @@ export function LayoutView({ layout }: { layout: BedLayout }) {
           [b.x2 - px_, b.y2 - py_],
           [b.x1 - px_, b.y1 - py_],
         ];
-        return { bed: b, corners: corners.map(px) };
+        const centroid = px([(b.x1 + b.x2) / 2, (b.y1 + b.y2) / 2]);
+        return { bed: b, corners: corners.map(px), centroid };
       }),
     [layout.beds]
   );
@@ -82,6 +109,10 @@ export function LayoutView({ layout }: { layout: BedLayout }) {
           </span>
           <span className="flex items-center gap-1.5">
             <span className="inline-block h-3 w-3 rounded-sm border border-sky-600 bg-sky-500/15" /> Shed
+          </span>
+          <span className="flex items-center gap-1.5 text-muted-foreground" title="Auto-refreshes every 20s">
+            <RadioTower className="h-3.5 w-3.5 animate-pulse text-emerald-600" />
+            updated {secondsAgo}s ago
           </span>
         </div>
       </div>
@@ -150,17 +181,22 @@ export function LayoutView({ layout }: { layout: BedLayout }) {
                 </text>
 
                 {/* Beds — each a quadrilateral at its exact surveyed angle */}
-                {bedPolys.map(({ bed, corners }) => {
+                {bedPolys.map(({ bed, corners, centroid }) => {
                   const occupied = !!bed.occupant;
                   const isSelected = selected?.id === bed.id;
                   const pointsStr = corners.map((c) => c.join(",")).join(" ");
+                  const [cx, cy] = centroid;
                   return (
                     <g
                       key={bed.id}
-                      onClick={() => setSelected(bed)}
+                      onClick={() => setSelectedId(bed.id)}
                       className="cursor-pointer"
                       role="button"
-                      aria-label={`Bed ${bed.code}${occupied ? `, occupied by ${bed.occupant!.orderNo}` : ", empty"}`}
+                      aria-label={`Bed ${bed.code}${
+                        occupied
+                          ? `, occupied by ${bed.occupant!.orderNo}, day ${bed.occupant!.daysInBed}${bed.occupant!.stale ? ", reading overdue" : ""}`
+                          : ", empty"
+                      }`}
                     >
                       <polygon
                         points={pointsStr}
@@ -180,6 +216,40 @@ export function LayoutView({ layout }: { layout: BedLayout }) {
                           strokeDasharray="0"
                         />
                       )}
+                      {/* At-a-glance badge: day count + staleness, kept
+                          horizontal regardless of the bed's own angle */}
+                      {occupied && (
+                        <g transform={`translate(${cx}, ${cy})`}>
+                          <rect
+                            x={-11}
+                            y={-6}
+                            width={bed.occupant!.stale ? 30 : 22}
+                            height={12}
+                            rx={3}
+                            className="fill-white/90 stroke-emerald-700/50 dark:fill-black/80"
+                            strokeWidth="0.5"
+                          />
+                          <text
+                            x={-8}
+                            y={3}
+                            className="fill-emerald-800 dark:fill-emerald-300 text-[8px] font-semibold"
+                          >
+                            D{bed.occupant!.daysInBed}
+                          </text>
+                          {bed.occupant!.stale && (
+                            <g transform="translate(10, -4)">
+                              <circle r={4} className="fill-amber-500" />
+                              <text
+                                x={-1.2}
+                                y={1.6}
+                                className="fill-white text-[6px] font-bold"
+                              >
+                                !
+                              </text>
+                            </g>
+                          )}
+                        </g>
+                      )}
                     </g>
                   );
                 })}
@@ -195,9 +265,16 @@ export function LayoutView({ layout }: { layout: BedLayout }) {
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
                   <h2 className="font-semibold">{selected.code}</h2>
-                  <Badge variant={selected.occupant ? "default" : "outline"}>
-                    {selected.occupant ? "Composting" : "Empty"}
-                  </Badge>
+                  <div className="flex items-center gap-1.5">
+                    {selected.occupant?.stale && (
+                      <Badge variant="destructive" className="gap-1">
+                        <AlertTriangle className="h-3 w-3" /> Reading overdue
+                      </Badge>
+                    )}
+                    <Badge variant={selected.occupant ? "default" : "outline"}>
+                      {selected.occupant ? "Composting" : "Empty"}
+                    </Badge>
+                  </div>
                 </div>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {selected.lengthFt}′ × {selected.widthFt}′ ·{" "}
@@ -215,10 +292,22 @@ export function LayoutView({ layout }: { layout: BedLayout }) {
                       </Link>
                     </div>
                     <div className="text-muted-foreground">{selected.occupant.productName}</div>
-                    {selected.occupant.startedAt && (
+                    {selected.occupant.stageName && (
+                      <div className="text-muted-foreground">Stage: {selected.occupant.stageName}</div>
+                    )}
+                    <div className="text-xs text-muted-foreground">
+                      Day {selected.occupant.daysInBed} in this bed (since{" "}
+                      {fmtDateTime(selected.occupant.assignedAt)})
+                    </div>
+                    {selected.occupant.latestReading ? (
                       <div className="text-xs text-muted-foreground">
-                        Started {fmtDateTime(selected.occupant.startedAt)}
+                        Latest: {selected.occupant.latestReading.parameter}{" "}
+                        {selected.occupant.latestReading.value}
+                        {selected.occupant.latestReading.unit ?? ""} ·{" "}
+                        {fmtDateTime(selected.occupant.latestReading.recordedAt)}
                       </div>
+                    ) : (
+                      <div className="text-xs text-muted-foreground">No readings recorded yet</div>
                     )}
                   </div>
                 ) : (
@@ -253,10 +342,12 @@ export function LayoutView({ layout }: { layout: BedLayout }) {
                     {zoneBeds.map((b) => (
                       <button
                         key={b.id}
-                        onClick={() => setSelected(b)}
+                        onClick={() => setSelectedId(b.id)}
                         className={`rounded px-1.5 py-0.5 font-mono text-xs transition-colors ${
                           b.occupant
-                            ? "bg-emerald-600 text-white"
+                            ? b.occupant.stale
+                              ? "bg-amber-500 text-white"
+                              : "bg-emerald-600 text-white"
                             : "border border-border text-muted-foreground hover:bg-accent"
                         } ${selected?.id === b.id ? "ring-2 ring-primary" : ""}`}
                       >
