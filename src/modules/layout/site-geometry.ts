@@ -63,9 +63,9 @@ export const BED_GAP_FT = 3;
 // Tree-line dividers between Zone 1 beds (visual only — not tracked master
 // data). One line in the middle of each 3' gap between the 10 beds, per the
 // updated site plan.
-const Z1_BED_TOP_Y = 95;
+const Z1_BED_TOP_Y = 115;
 const Z1_PITCH = BED_WIDTH_FT + BED_GAP_FT; // 7'
-const Z1_BED_X0 = 75;
+const Z1_BED_X0 = 60;
 export const ZONE1_TREE_LINES: [Pt, Pt][] = Array.from({ length: 9 }, (_, i) => {
   const y = Z1_BED_TOP_Y - i * Z1_PITCH - BED_WIDTH_FT - BED_GAP_FT / 2;
   return [

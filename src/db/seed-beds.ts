@@ -38,27 +38,30 @@ async function seedBeds() {
     .all();
 
   // Zone 1: 10 beds, length E-W (horizontal), stacked N→S.
-  // Block spans x 75→145, top bed at y=95 down to y=28.
+  // Block spans x 60→130, top bed at y=115 down to y=48 — positioned high
+  // in the zone, near the 160' top edge, matching the site plan's cluster.
   const z1Beds = Array.from({ length: 10 }, (_, i) => ({
     zoneId: z1.id,
     code: `Z1-${String(i + 1).padStart(2, "0")}`,
     lengthFt: BED_LENGTH_FT,
     widthFt: BED_WIDTH_FT,
-    posX: 75,
-    posY: 95 - i * PITCH, // top edge of each bed
+    posX: 60,
+    posY: 115 - i * PITCH, // top edge of each bed
     orientation: "h" as const,
   }));
 
   // Zone 2: 15 beds, length E-W (horizontal, matching Zone 1 and the site
   // plan's red bed rows), stacked N→S. Block spans x -20→50, top bed at
-  // y=-10 down to y=-108.
+  // y=-40 down to y=-138. Top-edge y is kept at -40 (not higher) because
+  // the L–F zone divider slopes from +29' to -30' — a flatter top would
+  // poke the block's right corner north of the boundary into Zone 1.
   const z2Beds = Array.from({ length: 15 }, (_, i) => ({
     zoneId: z2.id,
     code: `Z2-${String(i + 1).padStart(2, "0")}`,
     lengthFt: BED_LENGTH_FT,
     widthFt: BED_WIDTH_FT,
     posX: -20,
-    posY: -10 - i * PITCH, // top edge of each bed
+    posY: -40 - i * PITCH, // top edge of each bed
     orientation: "h" as const,
   }));
 
