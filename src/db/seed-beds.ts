@@ -49,16 +49,17 @@ async function seedBeds() {
     orientation: "h" as const,
   }));
 
-  // Zone 2: 15 beds, length N-S (vertical), side by side W→E.
-  // Block spans y -140→-70 (70' tall), first bed at x=-30.
+  // Zone 2: 15 beds, length E-W (horizontal, matching Zone 1 and the site
+  // plan's red bed rows), stacked N→S. Block spans x -20→50, top bed at
+  // y=-10 down to y=-108.
   const z2Beds = Array.from({ length: 15 }, (_, i) => ({
     zoneId: z2.id,
     code: `Z2-${String(i + 1).padStart(2, "0")}`,
     lengthFt: BED_LENGTH_FT,
     widthFt: BED_WIDTH_FT,
-    posX: -30 + i * PITCH,
-    posY: -70, // top edge; bed runs south to -140
-    orientation: "v" as const,
+    posX: -20,
+    posY: -10 - i * PITCH, // top edge of each bed
+    orientation: "h" as const,
   }));
 
   db.insert(beds).values([...z1Beds, ...z2Beds]).run();
