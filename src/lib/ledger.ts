@@ -7,13 +7,21 @@ import { inventoryTransactions, stockBalances, items, auditLog } from "@/db/sche
 import { and, eq, isNull } from "drizzle-orm";
 
 export type LedgerEntry = {
-  type: "goods_receipt" | "issue_to_production" | "production_output" | "adjustment";
+  type:
+    | "goods_receipt"
+    | "issue_to_production"
+    | "issue_to_bed_maintenance"
+    | "production_output"
+    | "adjustment"
+    | "transfer_out"
+    | "transfer_in";
   itemId: number;
   warehouseId: number;
+  zoneId?: number | null;
   lotId?: number | null;
   batchId?: number | null;
   qty: number; // signed: + in, − out
-  uom: "kg" | "ton" | "bag" | "litre" | "nos";
+  uom: "kg" | "ton" | "bag" | "litre" | "nos" | "tractor" | "roll";
   refType?: string;
   refId?: number;
   reason?: string;
@@ -22,12 +30,14 @@ export type LedgerEntry = {
 
 // Must be called inside sqlite.transaction()
 export function postTransaction(entry: LedgerEntry) {
+  const zoneId = entry.zoneId ?? null;
   const lotId = entry.lotId ?? null;
   const batchId = entry.batchId ?? null;
 
   const balanceWhere = and(
     eq(stockBalances.itemId, entry.itemId),
     eq(stockBalances.warehouseId, entry.warehouseId),
+    zoneId === null ? isNull(stockBalances.zoneId) : eq(stockBalances.zoneId, zoneId),
     lotId === null ? isNull(stockBalances.lotId) : eq(stockBalances.lotId, lotId),
     batchId === null ? isNull(stockBalances.batchId) : eq(stockBalances.batchId, batchId)
   );
@@ -48,6 +58,7 @@ export function postTransaction(entry: LedgerEntry) {
       type: entry.type,
       itemId: entry.itemId,
       warehouseId: entry.warehouseId,
+      zoneId,
       lotId,
       batchId,
       qty: entry.qty,
@@ -66,6 +77,7 @@ export function postTransaction(entry: LedgerEntry) {
       .values({
         itemId: entry.itemId,
         warehouseId: entry.warehouseId,
+        zoneId,
         lotId,
         batchId,
         qty: newQty,

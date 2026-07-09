@@ -15,14 +15,13 @@ import {
   items,
   batches,
   batchInputs,
-  stockBalances,
-  lots,
   orderBeds,
 } from "@/db/schema";
 import { requireUser } from "@/lib/session";
 import { atomic, postTransaction, writeAudit } from "@/lib/ledger";
 import { nextDocNumber, nextBatchNumber } from "@/lib/numbering";
 import { localDateISO } from "@/lib/dates";
+import { pickFifoLots } from "@/lib/fifo";
 import type { ActionResult } from "@/modules/masters/actions";
 
 function fail(e: unknown): ActionResult {
@@ -129,82 +128,25 @@ export async function startProductionOrder(orderId: number): Promise<ActionResul
 
       for (const line of lines) {
         const item = db.select().from(items).where(eq(items.id, line.itemId)).get()!;
-        let remaining = line.qtyPerOutput * multiplier;
+        const qtyNeeded = line.qtyPerOutput * multiplier;
 
-        // FIFO across lots with stock in this warehouse. Rejected lots are
-        // excluded — pending (not yet inspected) lots stay usable, since
-        // requiring inspection before use would block every order today
-        // (nothing has been inspected yet). Only a failed inspection stops
-        // material from being consumed.
-        const lotRows = db
-          .select({
-            lotId: lots.id,
-            qty: stockBalances.qty,
-          })
-          .from(stockBalances)
-          .innerJoin(lots, eq(stockBalances.lotId, lots.id))
-          .where(
-            and(
-              eq(stockBalances.itemId, line.itemId),
-              eq(stockBalances.warehouseId, order.warehouseId),
-              sql`${stockBalances.qty} > 1e-9`,
-              sql`${lots.qcStatus} != 'rejected'`
-            )
-          )
-          .orderBy(asc(lots.receivedDate), asc(lots.id))
-          .all();
-
-        for (const lotRow of lotRows) {
-          if (remaining <= 1e-9) break;
-          const take = Math.min(remaining, lotRow.qty);
+        // FIFO across lots (rejected lots excluded, pending ones stay
+        // usable — see pickFifoLots), falling back to loose stock; throws
+        // with a clear shortage error if the item can't be fully covered.
+        const picks = pickFifoLots(line.itemId, order.warehouseId, qtyNeeded);
+        for (const pick of picks) {
           postTransaction({
             type: "issue_to_production",
             itemId: line.itemId,
             warehouseId: order.warehouseId,
-            lotId: lotRow.lotId,
-            qty: -take,
+            zoneId: pick.zoneId,
+            lotId: pick.lotId,
+            qty: -pick.qty,
             uom: item.uom,
             refType: "production_order",
             refId: order.id,
             userId: user.id,
           });
-          remaining -= take;
-        }
-
-        if (remaining > 1e-9) {
-          // Also check non-lot stock (from adjustments)
-          const looseBalance = db
-            .select()
-            .from(stockBalances)
-            .where(
-              and(
-                eq(stockBalances.itemId, line.itemId),
-                eq(stockBalances.warehouseId, order.warehouseId),
-                sql`${stockBalances.lotId} IS NULL`,
-                sql`${stockBalances.qty} > 1e-9`
-              )
-            )
-            .get();
-          if (looseBalance) {
-            const take = Math.min(remaining, looseBalance.qty);
-            postTransaction({
-              type: "issue_to_production",
-              itemId: line.itemId,
-              warehouseId: order.warehouseId,
-              qty: -take,
-              uom: item.uom,
-              refType: "production_order",
-              refId: order.id,
-              userId: user.id,
-            });
-            remaining -= take;
-          }
-        }
-
-        if (remaining > 1e-9) {
-          throw new Error(
-            `Insufficient stock of "${item.name}": short by ${Number(remaining.toFixed(3))} ${item.uom}`
-          );
         }
       }
 
@@ -369,12 +311,20 @@ export async function recordReading(formData: FormData): Promise<ActionResult> {
 const completeSchema = z.object({
   orderId: z.coerce.number().min(1),
   actualQty: z.coerce.number().positive("Actual output must be positive"),
+  // Manual lump-sum entries — not traced/calculated like material cost, just
+  // recorded against the batch. Both optional; left null if skipped.
+  laborCost: z.coerce.number().min(0).optional(),
+  overheadCost: z.coerce.number().min(0).optional(),
 });
 
 export async function completeProductionOrder(formData: FormData): Promise<ActionResult> {
   try {
     const user = await requireUser();
-    const data = completeSchema.parse(Object.fromEntries(formData));
+    const raw = Object.fromEntries(formData);
+    for (const k of ["laborCost", "overheadCost"]) {
+      if (raw[k] === "") delete raw[k];
+    }
+    const data = completeSchema.parse(raw);
 
     atomic(() => {
       const order = db
@@ -422,6 +372,8 @@ export async function completeProductionOrder(formData: FormData): Promise<Actio
           expectedQty: order.targetQty,
           yieldPct,
           warehouseId: order.warehouseId,
+          laborCost: data.laborCost,
+          overheadCost: data.overheadCost,
         })
         .returning()
         .get();
@@ -443,7 +395,7 @@ export async function completeProductionOrder(formData: FormData): Promise<Actio
           lotId: i.lotId!,
           itemId: i.itemId,
           qtyConsumed: -i.qty,
-          uom: i.uom as "kg" | "ton" | "bag" | "litre" | "nos",
+          uom: i.uom as "kg" | "ton" | "bag" | "litre" | "nos" | "tractor" | "roll",
         }));
       if (inputRows.length > 0) {
         db.insert(batchInputs).values(inputRows).run();
@@ -478,7 +430,7 @@ export async function completeProductionOrder(formData: FormData): Promise<Actio
         action: "production_order.complete",
         entity: "production_orders",
         entityId: order.id,
-        after: { batchNo, actualQty: data.actualQty, yieldPct },
+        after: { batchNo, actualQty: data.actualQty, yieldPct, laborCost: data.laborCost, overheadCost: data.overheadCost },
       });
     });
 

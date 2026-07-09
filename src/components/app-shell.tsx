@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
@@ -8,7 +9,6 @@ import {
   LayoutDashboard,
   Map,
   Boxes,
-  Package,
   Layers,
   Settings2,
   LogOut,
@@ -16,6 +16,7 @@ import {
   Moon,
   Sun,
   ShieldCheck,
+  Truck,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
@@ -30,6 +31,7 @@ const NAV = [
   { href: "/quality", label: "Quality", icon: ShieldCheck },
   { href: "/batches", label: "Batches", icon: Layers },
   { href: "/inventory", label: "Inventory", icon: Boxes },
+  { href: "/procurement", label: "Procurement", icon: Truck },
   { href: "/masters", label: "Masters", icon: Settings2, adminOnly: true },
 ];
 
@@ -43,7 +45,7 @@ export function AppShell({ user, children }: { user: SessionUser; children: Reac
   const sidebar = (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2 px-4 py-5">
-        <Package className="h-6 w-6 text-emerald-600" />
+        <Image src="/urvar-mark.png" alt="" width={28} height={29} className="h-7 w-auto shrink-0" />
         <div>
           <div className="text-sm font-semibold leading-none">Urvar ERP</div>
           <div className="mt-0.5 text-xs text-muted-foreground">Kisanbandhu Plant</div>
@@ -60,8 +62,8 @@ export function AppShell({ user, children }: { user: SessionUser; children: Reac
               className={cn(
                 "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
                 active
-                  ? "bg-accent text-accent-foreground"
-                  : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                  : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
               )}
             >
               <item.icon className="h-4 w-4" />
@@ -70,7 +72,7 @@ export function AppShell({ user, children }: { user: SessionUser; children: Reac
           );
         })}
       </nav>
-      <div className="border-t px-4 py-3">
+      <div className="border-t border-sidebar-border px-4 py-3">
         <div className="mb-2 flex items-center justify-between">
           <div>
             <div className="text-sm font-medium">{user.name}</div>
@@ -98,14 +100,19 @@ export function AppShell({ user, children }: { user: SessionUser; children: Reac
 
   return (
     <div className="flex min-h-screen">
-      {/* Desktop sidebar */}
-      <aside className="hidden w-60 shrink-0 border-r bg-card md:block">{sidebar}</aside>
+      {/* Desktop sidebar — a visibly distinct, slightly deeper shade than the
+          content area (bg-sidebar, not bg-card) is the defining Notion trait. */}
+      <aside className="hidden w-60 shrink-0 border-r border-sidebar-border bg-sidebar md:block">
+        {sidebar}
+      </aside>
 
       {/* Mobile drawer */}
       {mobileOpen && (
         <div className="fixed inset-0 z-50 md:hidden">
           <div className="absolute inset-0 bg-black/50" onClick={() => setMobileOpen(false)} />
-          <aside className="absolute left-0 top-0 h-full w-64 border-r bg-card">{sidebar}</aside>
+          <aside className="absolute left-0 top-0 h-full w-64 border-r border-sidebar-border bg-sidebar">
+            {sidebar}
+          </aside>
         </div>
       )}
 
@@ -114,6 +121,7 @@ export function AppShell({ user, children }: { user: SessionUser; children: Reac
           <Button variant="ghost" size="icon" onClick={() => setMobileOpen(true)} aria-label="Menu">
             <Menu className="h-5 w-5" />
           </Button>
+          <Image src="/urvar-mark.png" alt="" width={22} height={23} className="h-[22px] w-auto" />
           <span className="text-sm font-semibold">Urvar ERP</span>
         </header>
         <main className="flex-1 p-4 md:p-6">{children}</main>

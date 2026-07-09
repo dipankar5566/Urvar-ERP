@@ -5,6 +5,8 @@ import {
   products,
   items,
   warehouses,
+  warehouseZones,
+  vendors,
   formulas,
   formulaLines,
   workflowTemplates,
@@ -18,23 +20,37 @@ export default async function MastersPage() {
   const user = await getSessionUser();
   if (!user || user.role !== "admin") redirect("/dashboard");
 
-  const [productRows, itemRows, warehouseRows, formulaRows, formulaLineRows, templateRows, stageRows, userRows] =
-    [
-      db.select().from(products).orderBy(asc(products.name)).all(),
-      db.select().from(items).orderBy(asc(items.name)).all(),
-      db.select().from(warehouses).orderBy(asc(warehouses.name)).all(),
-      db.select().from(formulas).orderBy(asc(formulas.name)).all(),
-      db.select().from(formulaLines).all(),
-      db.select().from(workflowTemplates).orderBy(asc(workflowTemplates.name)).all(),
-      db.select().from(workflowTemplateStages).orderBy(asc(workflowTemplateStages.seq)).all(),
-      db.select().from(users).orderBy(asc(users.name)).all(),
-    ];
+  const [
+    productRows,
+    itemRows,
+    warehouseRows,
+    zoneRows,
+    vendorRows,
+    formulaRows,
+    formulaLineRows,
+    templateRows,
+    stageRows,
+    userRows,
+  ] = [
+    db.select().from(products).orderBy(asc(products.name)).all(),
+    db.select().from(items).orderBy(asc(items.name)).all(),
+    db.select().from(warehouses).orderBy(asc(warehouses.name)).all(),
+    db.select().from(warehouseZones).orderBy(asc(warehouseZones.name)).all(),
+    db.select().from(vendors).orderBy(asc(vendors.name)).all(),
+    db.select().from(formulas).orderBy(asc(formulas.name)).all(),
+    db.select().from(formulaLines).all(),
+    db.select().from(workflowTemplates).orderBy(asc(workflowTemplates.name)).all(),
+    db.select().from(workflowTemplateStages).orderBy(asc(workflowTemplateStages.seq)).all(),
+    db.select().from(users).orderBy(asc(users.name)).all(),
+  ];
 
   return (
     <MastersView
       products={productRows}
       items={itemRows}
       warehouses={warehouseRows}
+      zones={zoneRows}
+      vendors={vendorRows}
       formulas={formulaRows}
       formulaLines={formulaLineRows}
       templates={templateRows}

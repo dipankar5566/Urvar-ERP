@@ -16,6 +16,8 @@ const DOC_NUMBER_TARGETS = {
   LOT: { table: "lots", column: "lot_no" },
   PO: { table: "production_orders", column: "order_no" },
   CAPA: { table: "capas", column: "capa_no" },
+  TRF: { table: "transfers", column: "transfer_no" },
+  PUR: { table: "purchase_orders", column: "po_no" },
 } as const;
 
 export function nextDocNumber(prefix: keyof typeof DOC_NUMBER_TARGETS, date = new Date()): string {

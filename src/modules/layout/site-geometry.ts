@@ -1,8 +1,15 @@
 // Kisanbandhu plot geometry, extracted from the surveyed site plan
 // (Kisanbandhu Vermicompost.dwg, drawing units = inches, converted to feet).
 // Coordinates are in feet; y increases northward (flip for SVG).
+//
+// SEED SOURCE ONLY — since the Phase A site-layout refactor, the map
+// renders from the database (zones.polygon + site_features), not these
+// constants. They remain as the canonical surveyed values for fresh-DB
+// seeding (seed-beds.ts) and the 0011 backfill migration. Editing them
+// does NOT change an existing installation's map.
 
-export type Pt = [number, number];
+import type { Pt } from "./types";
+export type { Pt };
 
 // Outer boundary, counter-clockwise from the top-left corner of the 160' edge.
 // Edge lengths: 160' (top) → 84' → 90' → 74'-2" → 100' → 70' → ~221' (strip)
@@ -42,6 +49,10 @@ export const ZONE2_POLY: Pt[] = [
   [-64.7, -97.36], // K
 ];
 
+// Map-label anchor points (formerly hardcoded in the map renderer).
+export const ZONE1_LABEL: Pt = [150, 108];
+export const ZONE2_LABEL: Pt = [-58, -190];
+
 // The narrow access strip at the bottom (not a bed zone) — drawn for context.
 export const STRIP_POLY: Pt[] = [
   [133.23, -106.63], // G
@@ -62,10 +73,18 @@ export const ZONE1_DIAGONAL: [Pt, Pt] = [
 export const BED_WIDTH_FT = 4;
 
 // Machine Shed & Godown, positioned near the Zone 1 / Zone 2 boundary
-// (the L–F internal line) per the updated site plan.
+// (the L–F internal line) per the updated site plan. Shifted 8ft south
+// (y -8) from its original placement to keep clear of nearby Zone 1 beds,
+// while staying well north of the nearest Zone 2 bed (Z2-01 starts around
+// y=-19 to -23). Beds were later trimmed to a uniform 70'/50' operating
+// length (see seed-beds.ts) which only pulled bed ends further from the
+// shed, so this clearance holds with more margin than when it was set.
+// Sized to 1000 sqft (50' x 20') — widened 5ft each side from the original
+// 40' width about the same center; the 20' height (and its y-clearance
+// margins above/below) is unchanged.
 export const MACHINE_SHED_RECT: Pt[] = [
-  [-35, 20],
-  [5, 20],
-  [5, 0],
-  [-35, 0],
+  [-40, 12],
+  [10, 12],
+  [10, -8],
+  [-40, -8],
 ];

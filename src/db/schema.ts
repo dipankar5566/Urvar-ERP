@@ -29,10 +29,13 @@ export const items = sqliteTable("items", {
   category: text("category", {
     enum: ["raw_material", "packing_material", "finished_good", "consumable", "scrap"],
   }).notNull(),
-  uom: text("uom", { enum: ["kg", "ton", "bag", "litre", "nos"] }).notNull(),
+  uom: text("uom", { enum: ["kg", "ton", "bag", "litre", "nos", "tractor", "roll"] }).notNull(),
   // finished_good items link back to a product (one item per product, stock kept in product's base uom)
   productId: integer("product_id").references(() => products.id),
   reorderLevel: real("reorder_level").notNull().default(0),
+  // Free-text purchasing note, e.g. "Min 1000 pcs per lot" — not system-enforced, just a
+  // reference visible on the item so whoever places the PO doesn't have to remember it.
+  remarks: text("remarks"),
   active: integer("active", { mode: "boolean" }).notNull().default(true),
   createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
 });
@@ -44,12 +47,38 @@ export const warehouses = sqliteTable("warehouses", {
   active: integer("active", { mode: "boolean" }).notNull().default(true),
 });
 
+// Optional sub-locations within a warehouse. A warehouse with zero zones
+// behaves exactly as before — every zoneId reference elsewhere is nullable.
+export const warehouseZones = sqliteTable(
+  "warehouse_zones",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    warehouseId: integer("warehouse_id").notNull().references(() => warehouses.id),
+    name: text("name").notNull(),
+    code: text("code"),
+    active: integer("active", { mode: "boolean" }).notNull().default(true),
+  },
+  (t) => [index("wz_warehouse").on(t.warehouseId)]
+);
+
+export const vendors = sqliteTable("vendors", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull().unique(),
+  contactName: text("contact_name"),
+  phone: text("phone"),
+  email: text("email"),
+  gstin: text("gstin"),
+  address: text("address"),
+  active: integer("active", { mode: "boolean" }).notNull().default(true),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+});
+
 export const formulas = sqliteTable("formulas", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   name: text("name").notNull().unique(),
   productId: integer("product_id").notNull().references(() => products.id),
   outputQty: real("output_qty").notNull(), // e.g. 1
-  outputUom: text("output_uom", { enum: ["kg", "ton", "bag", "litre", "nos"] }).notNull(),
+  outputUom: text("output_uom", { enum: ["kg", "ton", "bag", "litre", "nos", "tractor", "roll"] }).notNull(),
   active: integer("active", { mode: "boolean" }).notNull().default(true),
   createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
 });
@@ -89,6 +118,15 @@ export const zones = sqliteTable("zones", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   code: text("code").notNull().unique(), // Z1, Z2
   name: text("name").notNull(),
+  // Zone outline on the site plan as a JSON [x,y][] in feet (same
+  // coordinate space as beds; y grows northward). Nullable only for
+  // legacy rows — the map skips zones without one.
+  polygon: text("polygon"),
+  // Where the zone's map label anchors, in the same feet space. Kept as
+  // data (not derived from the polygon centroid) so labels can sit clear
+  // of bed rows.
+  labelX: real("label_x"),
+  labelY: real("label_y"),
   active: integer("active", { mode: "boolean" }).notNull().default(true),
 });
 
@@ -112,6 +150,26 @@ export const beds = sqliteTable(
   (t) => [index("beds_zone").on(t.zoneId)]
 );
 
+// Everything drawn on the site map that isn't a bed or a zone: the plot
+// boundary, the access strip, and structures (sheds, godowns, tanks…).
+// One table so the whole map is data-driven — adding a fixture is an
+// insert, not a code change. Geometry is a JSON [x,y][] polygon in the
+// same feet space as beds (structures are stored as polygons even though
+// the editor draws rectangles, leaving room for rotated shapes later).
+export const siteFeatures = sqliteTable("site_features", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  kind: text("kind", { enum: ["boundary", "strip", "structure"] }).notNull(),
+  structureType: text("structure_type", {
+    enum: ["shed", "godown", "tank", "office", "other"],
+  }), // structures only
+  label: text("label"),
+  polygon: text("polygon").notNull(),
+  // Optional link to an inventory warehouse for storage buildings — the
+  // Machine Shed & Godown is both a map structure and a warehouse.
+  warehouseId: integer("warehouse_id").references(() => warehouses.id),
+  active: integer("active", { mode: "boolean" }).notNull().default(true),
+});
+
 // ---------- Production ----------
 
 export const productionOrders = sqliteTable("production_orders", {
@@ -122,7 +180,7 @@ export const productionOrders = sqliteTable("production_orders", {
   templateId: integer("template_id").notNull().references(() => workflowTemplates.id),
   warehouseId: integer("warehouse_id").notNull().references(() => warehouses.id),
   targetQty: real("target_qty").notNull(),
-  uom: text("uom", { enum: ["kg", "ton", "bag", "litre", "nos"] }).notNull(),
+  uom: text("uom", { enum: ["kg", "ton", "bag", "litre", "nos", "tractor", "roll"] }).notNull(),
   supervisorId: integer("supervisor_id").notNull().references(() => users.id),
   shift: text("shift", { enum: ["day", "night", "general"] }).notNull().default("general"),
   plannedStart: text("planned_start"),
@@ -201,6 +259,70 @@ export const orderBeds = sqliteTable(
   (t) => [uniqueIndex("ob_order_bed").on(t.orderId, t.bedId), index("ob_bed").on(t.bedId)]
 );
 
+// Rolling maintenance log for occupied beds: watering (7d), turning (10d),
+// bio-enzyme application (15d). Scoped to orderBedId (a specific bed's
+// occupancy of a specific order), not bare bedId, so history doesn't blend
+// if the same physical bed is reused by a later, different order.
+// order_beds.assignedAt is already the "windrow formation" anchor date —
+// due dates are computed on read (see getBedLayout), not stored here.
+export const bedMaintenanceLog = sqliteTable(
+  "bed_maintenance_log",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    orderBedId: integer("order_bed_id")
+      .notNull()
+      .references(() => orderBeds.id, { onDelete: "cascade" }),
+    taskType: text("task_type", { enum: ["watering", "turning", "bio_enzyme"] }).notNull(),
+    // Only set for taskType = "bio_enzyme": the raw_material item applied
+    // and qty deducted from stock (picked via an item selector rather than
+    // a hardcoded item id, so a rename doesn't silently break this).
+    itemId: integer("item_id").references(() => items.id),
+    qtyApplied: real("qty_applied"),
+    notes: text("notes"),
+    performedBy: integer("performed_by").notNull().references(() => users.id),
+    performedAt: text("performed_at").notNull().default(sql`(datetime('now'))`),
+  },
+  (t) => [
+    index("bml_order_bed").on(t.orderBedId),
+    index("bml_task").on(t.orderBedId, t.taskType),
+  ]
+);
+
+// ---------- Procurement ----------
+
+export const purchaseOrders = sqliteTable("purchase_orders", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  poNo: text("po_no").notNull().unique(), // PUR-YYMM-### (production orders already own "PO-")
+  vendorId: integer("vendor_id").notNull().references(() => vendors.id),
+  status: text("status", {
+    enum: ["draft", "approved", "partially_received", "closed", "cancelled"],
+  })
+    .notNull()
+    .default("draft"),
+  expectedDeliveryDate: text("expected_delivery_date"),
+  remarks: text("remarks"),
+  createdBy: integer("created_by").notNull().references(() => users.id),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+  approvedBy: integer("approved_by").references(() => users.id),
+  approvedAt: text("approved_at"),
+});
+
+export const purchaseOrderLines = sqliteTable(
+  "purchase_order_lines",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    poId: integer("po_id").notNull().references(() => purchaseOrders.id),
+    itemId: integer("item_id").notNull().references(() => items.id),
+    qty: real("qty").notNull(),
+    uom: text("uom", { enum: ["kg", "ton", "bag", "litre", "nos", "tractor", "roll"] }).notNull(),
+    rate: real("rate").notNull(),
+    // Running fulfillment total, updated by createGoodsReceipt — also doubles
+    // as the source for "last rate paid" lookups (a line IS a rate data point).
+    receivedQty: real("received_qty").notNull().default(0),
+  },
+  (t) => [index("pol_po").on(t.poId), index("pol_item").on(t.itemId)]
+);
+
 // ---------- Traceability ----------
 
 export const lots = sqliteTable("lots", {
@@ -208,11 +330,22 @@ export const lots = sqliteTable("lots", {
   lotNo: text("lot_no").notNull().unique(), // LOT-YYMM-###
   itemId: integer("item_id").notNull().references(() => items.id),
   supplierName: text("supplier_name").notNull(),
+  // Optional link to the vendor master / purchase order this receipt
+  // fulfilled — null for ad-hoc receipts, which keep working exactly as
+  // before via the supplierName text column above.
+  vendorId: integer("vendor_id").references(() => vendors.id),
+  poId: integer("po_id").references(() => purchaseOrders.id),
+  poLineId: integer("po_line_id").references(() => purchaseOrderLines.id),
   receivedQty: real("received_qty").notNull(),
-  uom: text("uom", { enum: ["kg", "ton", "bag", "litre", "nos"] }).notNull(),
+  uom: text("uom", { enum: ["kg", "ton", "bag", "litre", "nos", "tractor", "roll"] }).notNull(),
   receivedDate: text("received_date").notNull(),
   vehicleNo: text("vehicle_no"),
   remarks: text("remarks"),
+  // Cost per unit at receipt — copied from the PO line's rate when linked,
+  // or entered directly for ad-hoc receipts. Null means no cost was ever
+  // recorded for this lot (e.g. an ad-hoc receipt where the rate was left
+  // blank); batch costing must treat that as "unknown," not zero.
+  rate: real("rate"),
   createdBy: integer("created_by").notNull().references(() => users.id),
   createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
   // Incoming inspection — recorded after receipt, not blocking it. Only a
@@ -237,7 +370,7 @@ export const batches = sqliteTable("batches", {
   mfgDate: text("mfg_date").notNull(),
   expiryDate: text("expiry_date").notNull(),
   qtyProduced: real("qty_produced").notNull(),
-  uom: text("uom", { enum: ["kg", "ton", "bag", "litre", "nos"] }).notNull(),
+  uom: text("uom", { enum: ["kg", "ton", "bag", "litre", "nos", "tractor", "roll"] }).notNull(),
   expectedQty: real("expected_qty").notNull(),
   yieldPct: real("yield_pct").notNull(),
   warehouseId: integer("warehouse_id").notNull().references(() => warehouses.id),
@@ -249,6 +382,10 @@ export const batches = sqliteTable("batches", {
   dispatchStatus: text("dispatch_status", { enum: ["in_stock", "partial", "dispatched"] })
     .notNull()
     .default("in_stock"),
+  // Manual lump-sum entries at Complete Order time — not derived/traced like
+  // material cost, just recorded. Null means not entered, not zero cost.
+  laborCost: real("labor_cost"),
+  overheadCost: real("overhead_cost"),
   createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
 });
 
@@ -260,7 +397,7 @@ export const batchInputs = sqliteTable(
     lotId: integer("lot_id").notNull().references(() => lots.id),
     itemId: integer("item_id").notNull().references(() => items.id),
     qtyConsumed: real("qty_consumed").notNull(),
-    uom: text("uom", { enum: ["kg", "ton", "bag", "litre", "nos"] }).notNull(),
+    uom: text("uom", { enum: ["kg", "ton", "bag", "litre", "nos", "tractor", "roll"] }).notNull(),
   },
   (t) => [index("bi_batch").on(t.batchId), index("bi_lot").on(t.lotId)]
 );
@@ -322,6 +459,26 @@ export const capas = sqliteTable("capas", {
   closedAt: text("closed_at"),
 });
 
+// Warehouse-to-warehouse stock movement. Not QC-gated (a location change,
+// not a dispatch) — the identity of the actual movement lives in
+// inventory_transactions rows (ref_type="transfer", ref_id=this.id), since a
+// raw-material transfer can span multiple FIFO lots.
+export const transfers = sqliteTable("transfers", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  transferNo: text("transfer_no").notNull().unique(), // TRF-YYMM-###
+  itemId: integer("item_id").notNull().references(() => items.id),
+  batchId: integer("batch_id").references(() => batches.id), // required for finished_good items
+  qty: real("qty").notNull(),
+  uom: text("uom", { enum: ["kg", "ton", "bag", "litre", "nos", "tractor", "roll"] }).notNull(),
+  fromWarehouseId: integer("from_warehouse_id").notNull().references(() => warehouses.id),
+  toWarehouseId: integer("to_warehouse_id").notNull().references(() => warehouses.id),
+  fromZoneId: integer("from_zone_id").references(() => warehouseZones.id),
+  toZoneId: integer("to_zone_id").references(() => warehouseZones.id),
+  remarks: text("remarks"),
+  createdBy: integer("created_by").notNull().references(() => users.id),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+});
+
 // ---------- Inventory ----------
 
 export const inventoryTransactions = sqliteTable(
@@ -332,17 +489,21 @@ export const inventoryTransactions = sqliteTable(
       enum: [
         "goods_receipt",
         "issue_to_production",
+        "issue_to_bed_maintenance",
         "production_output",
         "adjustment",
+        "transfer_out",
+        "transfer_in",
       ],
     }).notNull(),
     itemId: integer("item_id").notNull().references(() => items.id),
     warehouseId: integer("warehouse_id").notNull().references(() => warehouses.id),
+    zoneId: integer("zone_id").references(() => warehouseZones.id),
     lotId: integer("lot_id").references(() => lots.id),
     batchId: integer("batch_id").references(() => batches.id),
     qty: real("qty").notNull(), // signed: + in, - out
-    uom: text("uom", { enum: ["kg", "ton", "bag", "litre", "nos"] }).notNull(),
-    refType: text("ref_type"), // e.g. "production_order", "lot", "manual"
+    uom: text("uom", { enum: ["kg", "ton", "bag", "litre", "nos", "tractor", "roll"] }).notNull(),
+    refType: text("ref_type"), // e.g. "production_order", "lot", "manual", "transfer"
     refId: integer("ref_id"),
     reason: text("reason"), // required for adjustments
     createdBy: integer("created_by").notNull().references(() => users.id),
@@ -361,13 +522,14 @@ export const stockBalances = sqliteTable(
     id: integer("id").primaryKey({ autoIncrement: true }),
     itemId: integer("item_id").notNull().references(() => items.id),
     warehouseId: integer("warehouse_id").notNull().references(() => warehouses.id),
+    zoneId: integer("zone_id").references(() => warehouseZones.id),
     lotId: integer("lot_id").references(() => lots.id),
     batchId: integer("batch_id").references(() => batches.id),
     qty: real("qty").notNull().default(0),
-    uom: text("uom", { enum: ["kg", "ton", "bag", "litre", "nos"] }).notNull(),
+    uom: text("uom", { enum: ["kg", "ton", "bag", "litre", "nos", "tractor", "roll"] }).notNull(),
   },
   (t) => [
-    uniqueIndex("sb_unique").on(t.itemId, t.warehouseId, t.lotId, t.batchId),
+    uniqueIndex("sb_unique").on(t.itemId, t.warehouseId, t.zoneId, t.lotId, t.batchId),
     index("sb_item").on(t.itemId),
   ]
 );

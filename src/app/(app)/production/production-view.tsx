@@ -20,16 +20,8 @@ import { FormDialog, NativeSelect } from "@/components/form-dialog";
 import { createProductionOrder } from "@/modules/production/actions";
 import type { OrderRow } from "@/modules/production/queries";
 import type { Product, Formula, Warehouse, WorkflowTemplate } from "@/modules/masters/types";
-
-export const STATUS_BADGE: Record<
-  string,
-  { label: string; variant: "secondary" | "default" | "destructive" | "outline" }
-> = {
-  draft: { label: "Draft", variant: "outline" },
-  in_progress: { label: "In Progress", variant: "default" },
-  completed: { label: "Completed", variant: "secondary" },
-  cancelled: { label: "Cancelled", variant: "destructive" },
-};
+import { fmtQty } from "@/lib/format";
+import { STATUS_BADGE } from "@/modules/production/badges";
 
 export function ProductionView({
   orders,
@@ -207,7 +199,7 @@ export function ProductionView({
                   </TableCell>
                   <TableCell>{o.productName}</TableCell>
                   <TableCell>
-                    {o.targetQty} {o.uom}
+                    {fmtQty(o.targetQty)} {o.uom}
                   </TableCell>
                   <TableCell>
                     <Badge variant={badge.variant}>{badge.label}</Badge>

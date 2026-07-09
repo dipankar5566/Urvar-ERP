@@ -3,6 +3,8 @@ import type {
   products,
   items,
   warehouses,
+  warehouseZones,
+  vendors,
   formulas,
   formulaLines,
   workflowTemplates,
@@ -13,13 +15,15 @@ import type {
 export type Product = InferSelectModel<typeof products>;
 export type Item = InferSelectModel<typeof items>;
 export type Warehouse = InferSelectModel<typeof warehouses>;
+export type WarehouseZone = InferSelectModel<typeof warehouseZones>;
+export type Vendor = InferSelectModel<typeof vendors>;
 export type Formula = InferSelectModel<typeof formulas>;
 export type FormulaLine = InferSelectModel<typeof formulaLines>;
 export type WorkflowTemplate = InferSelectModel<typeof workflowTemplates>;
 export type WorkflowTemplateStage = InferSelectModel<typeof workflowTemplateStages>;
 export type SafeUser = Omit<InferSelectModel<typeof users>, "passwordHash">;
 
-export const UOMS = ["kg", "ton", "bag", "litre", "nos"] as const;
+export const UOMS = ["kg", "ton", "bag", "litre", "nos", "tractor", "roll"] as const;
 export const ITEM_CATEGORIES = [
   { value: "raw_material", label: "Raw Material" },
   { value: "packing_material", label: "Packing Material" },

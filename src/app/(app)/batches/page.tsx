@@ -1,8 +1,14 @@
 import { requireUser } from "@/lib/session";
-import { getBatches } from "@/modules/batches/queries";
+import { getBatches, getBatchCostYieldSeries } from "@/modules/batches/queries";
 import { BatchesView } from "./batches-view";
+import { CostYieldCard } from "./cost-yield-card";
 
 export default async function BatchesPage() {
   await requireUser();
-  return <BatchesView batches={getBatches()} />;
+  return (
+    <div>
+      <BatchesView batches={getBatches()} />
+      <CostYieldCard series={getBatchCostYieldSeries()} />
+    </div>
+  );
 }

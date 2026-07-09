@@ -39,8 +39,9 @@ import {
 } from "@/modules/production/actions";
 import { assignBeds } from "@/modules/layout/actions";
 import type { OrderDetail } from "@/modules/production/queries";
-import { STATUS_BADGE } from "../production-view";
+import { STATUS_BADGE } from "@/modules/production/badges";
 import { fmtDateTime } from "@/lib/dates";
+import { fmtQty, fmtPct } from "@/lib/format";
 
 type BedOption = {
   id: number;
@@ -88,7 +89,7 @@ export function OrderDetailView({
             <Badge variant={badge.variant}>{badge.label}</Badge>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            {order.productName} — {order.targetQty} {order.uom} · {order.formulaName} ·{" "}
+            {order.productName} — {fmtQty(order.targetQty)} {order.uom} · {order.formulaName} ·{" "}
             {order.warehouseName} · Supervisor: {order.supervisorName}
           </p>
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-sm">
@@ -150,19 +151,31 @@ export function OrderDetailView({
               <input type="hidden" name="orderId" value={order.id} />
               <div className="space-y-2">
                 <Label htmlFor="co-qty">
-                  Actual output ({order.uom}) — target was {order.targetQty}
+                  Actual output ({order.uom}) — target was {fmtQty(order.targetQty)}
                 </Label>
                 <Input id="co-qty" name="actualQty" type="number" min={0} step="any" required />
               </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label htmlFor="co-labor">Labor cost (optional)</Label>
+                  <Input id="co-labor" name="laborCost" type="number" min={0} step="any" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="co-overhead">Overhead cost (optional)</Label>
+                  <Input id="co-overhead" name="overheadCost" type="number" min={0} step="any" />
+                </div>
+              </div>
               <p className="text-xs text-muted-foreground">
                 Completing creates the batch, records traceability, and adds finished goods to stock.
+                Material cost is calculated automatically from the lots consumed; labor/overhead are
+                recorded as entered here.
               </p>
             </FormDialog>
           )}
           {batch && (
             <Link href={`/batches/${batch.id}`}>
               <Button size="sm" variant="outline">
-                Batch {batch.batchNo} · {batch.yieldPct.toFixed(1)}% yield
+                Batch {batch.batchNo} · {fmtPct(batch.yieldPct)} yield
               </Button>
             </Link>
           )}
@@ -183,7 +196,7 @@ export function OrderDetailView({
                 <li key={stage.id} className="flex gap-3">
                   <div className="flex flex-col items-center">
                     {stage.status === "completed" ? (
-                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-600 text-white">
+                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-success text-success-foreground">
                         <Check className="h-3.5 w-3.5" />
                       </span>
                     ) : isActive ? (
@@ -355,7 +368,7 @@ function BedAssignDialog({
                           disabled
                             ? "cursor-not-allowed border-border bg-muted text-muted-foreground/50 line-through"
                             : isSelected
-                              ? "border-emerald-700 bg-emerald-600 text-white"
+                              ? "border-success bg-success text-success-foreground"
                               : "border-border hover:bg-accent"
                         }`}
                       >

@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import type { BatchRow } from "@/modules/batches/queries";
 
 import { QC_BADGE } from "@/modules/batches/badges";
+import { fmtQty, fmtPct } from "@/lib/format";
 
 export function BatchesView({ batches }: { batches: BatchRow[] }) {
   function exportCsv() {
@@ -90,9 +91,9 @@ export function BatchesView({ batches }: { batches: BatchRow[] }) {
                   <TableCell>{b.productName}</TableCell>
                   <TableCell>{b.mfgDate}</TableCell>
                   <TableCell className="text-right font-mono">
-                    {b.qtyProduced} {b.uom}
+                    {fmtQty(b.qtyProduced)} {b.uom}
                   </TableCell>
-                  <TableCell className="text-right font-mono">{b.yieldPct.toFixed(1)}%</TableCell>
+                  <TableCell className="text-right font-mono">{fmtPct(b.yieldPct)}</TableCell>
                   <TableCell>
                     <Badge variant={qc.variant}>{qc.label}</Badge>
                   </TableCell>

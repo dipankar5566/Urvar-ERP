@@ -8,6 +8,8 @@ import {
   products,
   items,
   warehouses,
+  warehouseZones,
+  vendors,
   formulas,
   formulaLines,
   workflowTemplates,
@@ -24,7 +26,7 @@ function fail(e: unknown): ActionResult {
   return { ok: false, error: e instanceof Error ? e.message : "Something went wrong" };
 }
 
-const uomEnum = z.enum(["kg", "ton", "bag", "litre", "nos"]);
+const uomEnum = z.enum(["kg", "ton", "bag", "litre", "nos", "tractor", "roll"]);
 
 // ---------- Products ----------
 
@@ -72,6 +74,7 @@ const itemSchema = z.object({
   uom: uomEnum,
   productId: z.coerce.number().optional(),
   reorderLevel: z.coerce.number().min(0).default(0),
+  remarks: z.string().trim().optional(),
 });
 
 export async function saveItem(formData: FormData): Promise<ActionResult> {
@@ -87,6 +90,7 @@ export async function saveItem(formData: FormData): Promise<ActionResult> {
         uom: data.uom,
         productId: data.category === "finished_good" ? data.productId ?? null : null,
         reorderLevel: data.reorderLevel,
+        remarks: data.remarks || null,
       };
       if (data.id) {
         db.update(items).set(values).where(eq(items.id, data.id)).run();
@@ -125,6 +129,85 @@ export async function saveWarehouse(formData: FormData): Promise<ActionResult> {
       }
     });
     revalidatePath("/masters");
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+// ---------- Warehouse Zones ----------
+// Purely optional sub-locations — a warehouse with none behaves exactly as
+// before everywhere else in the app.
+
+const warehouseZoneSchema = z.object({
+  id: z.coerce.number().optional(),
+  warehouseId: z.coerce.number().min(1, "Warehouse is required"),
+  name: z.string().trim().min(1, "Name is required"),
+  code: z.string().trim().optional(),
+});
+
+export async function saveWarehouseZone(formData: FormData): Promise<ActionResult> {
+  try {
+    const admin = await requireAdmin();
+    const data = warehouseZoneSchema.parse(Object.fromEntries(formData));
+    atomic(() => {
+      if (data.id) {
+        db.update(warehouseZones)
+          .set({ name: data.name, code: data.code })
+          .where(eq(warehouseZones.id, data.id))
+          .run();
+        writeAudit({ actorId: admin.id, action: "warehouse_zone.update", entity: "warehouse_zones", entityId: data.id, after: data });
+      } else {
+        const row = db
+          .insert(warehouseZones)
+          .values({ warehouseId: data.warehouseId, name: data.name, code: data.code })
+          .returning()
+          .get();
+        writeAudit({ actorId: admin.id, action: "warehouse_zone.create", entity: "warehouse_zones", entityId: row.id, after: data });
+      }
+    });
+    revalidatePath("/masters");
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+// ---------- Vendors ----------
+
+const vendorSchema = z.object({
+  id: z.coerce.number().optional(),
+  name: z.string().trim().min(1, "Name is required"),
+  contactName: z.string().trim().optional(),
+  phone: z.string().trim().optional(),
+  email: z.string().trim().optional(),
+  gstin: z.string().trim().optional(),
+  address: z.string().trim().optional(),
+});
+
+export async function saveVendor(formData: FormData): Promise<ActionResult> {
+  try {
+    const admin = await requireAdmin();
+    const data = vendorSchema.parse(Object.fromEntries(formData));
+    atomic(() => {
+      const values = {
+        name: data.name,
+        contactName: data.contactName,
+        phone: data.phone,
+        email: data.email,
+        gstin: data.gstin,
+        address: data.address,
+      };
+      if (data.id) {
+        db.update(vendors).set(values).where(eq(vendors.id, data.id)).run();
+        writeAudit({ actorId: admin.id, action: "vendor.update", entity: "vendors", entityId: data.id, after: data });
+      } else {
+        const row = db.insert(vendors).values(values).returning().get();
+        writeAudit({ actorId: admin.id, action: "vendor.create", entity: "vendors", entityId: row.id, after: data });
+      }
+    });
+    revalidatePath("/masters");
+    revalidatePath("/procurement");
     return { ok: true };
   } catch (e) {
     return fail(e);

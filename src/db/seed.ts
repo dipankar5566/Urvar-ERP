@@ -67,14 +67,33 @@ async function seed() {
   const itemRows = db
     .insert(items)
     .values([
-      { name: "Cow Dung", category: "raw_material", uom: "ton", reorderLevel: 5 },
-      { name: "Agricultural Waste", category: "raw_material", uom: "ton", reorderLevel: 2 },
+      {
+        name: "Cow Dung",
+        category: "raw_material",
+        uom: "ton",
+        reorderLevel: 5,
+        remarks: "Bought by tractor load (~2.5-3 ton, varies) — enter the actual weighed qty at Goods Receipt, note tractor count in Remarks/Vehicle No.",
+      },
+      { name: "Agricultural Waste", category: "raw_material", uom: "tractor", reorderLevel: 2 },
       { name: "Earthworm Culture", category: "raw_material", uom: "kg", reorderLevel: 50 },
       { name: "Rock Phosphate", category: "raw_material", uom: "ton", reorderLevel: 1 },
       { name: "Neem Cake", category: "raw_material", uom: "kg", reorderLevel: 100 },
-      { name: "HDPE Bag 25kg", category: "packing_material", uom: "nos", reorderLevel: 500 },
-      { name: "HDPE Bag 5kg", category: "packing_material", uom: "nos", reorderLevel: 500 },
-      { name: "Labels & Thread", category: "consumable", uom: "nos", reorderLevel: 500 },
+      {
+        name: "HDPE Bag 25kg",
+        category: "packing_material",
+        uom: "nos",
+        reorderLevel: 500,
+        remarks: "Min 1000 pcs per lot",
+      },
+      {
+        name: "HDPE Bag 5kg",
+        category: "packing_material",
+        uom: "nos",
+        reorderLevel: 500,
+        remarks: "Min 1000 pcs per lot",
+      },
+      { name: "Labels & Thread", category: "consumable", uom: "roll", reorderLevel: 20 },
+      { name: "Liner Bags", category: "packing_material", uom: "kg", reorderLevel: 50 },
       // Finished goods items (stock of produced goods)
       ...productRows.map((p) => ({
         name: p.name,

@@ -14,12 +14,22 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { FormDialog, NativeSelect } from "@/components/form-dialog";
-import { saveProduct, saveItem, saveWarehouse, saveUser } from "@/modules/masters/actions";
+import {
+  saveProduct,
+  saveItem,
+  saveWarehouse,
+  saveWarehouseZone,
+  saveVendor,
+  saveUser,
+} from "@/modules/masters/actions";
 import {
   type Product,
   type Item,
   type Warehouse,
+  type WarehouseZone,
+  type Vendor,
   type Formula,
   type FormulaLine,
   type WorkflowTemplate,
@@ -36,6 +46,8 @@ export function MastersView(props: {
   products: Product[];
   items: Item[];
   warehouses: Warehouse[];
+  zones: WarehouseZone[];
+  vendors: Vendor[];
   formulas: Formula[];
   formulaLines: FormulaLine[];
   templates: WorkflowTemplate[];
@@ -46,7 +58,7 @@ export function MastersView(props: {
     <div>
       <h1 className="text-xl font-semibold">Masters</h1>
       <p className="mt-1 text-sm text-muted-foreground">
-        Products, items, formulas, workflows, warehouses, and users.
+        Products, items, formulas, workflows, warehouses, vendors, and users.
       </p>
 
       <Tabs defaultValue="products" className="mt-6">
@@ -56,6 +68,7 @@ export function MastersView(props: {
           <TabsTrigger value="formulas">Formulas</TabsTrigger>
           <TabsTrigger value="workflows">Workflows</TabsTrigger>
           <TabsTrigger value="warehouses">Warehouses</TabsTrigger>
+          <TabsTrigger value="vendors">Vendors</TabsTrigger>
           <TabsTrigger value="users">Users</TabsTrigger>
         </TabsList>
 
@@ -131,7 +144,12 @@ export function MastersView(props: {
               <TableBody>
                 {props.items.map((i) => (
                   <TableRow key={i.id}>
-                    <TableCell className="font-medium">{i.name}</TableCell>
+                    <TableCell className="font-medium">
+                      {i.name}
+                      {i.remarks && (
+                        <div className="text-xs font-normal text-muted-foreground">{i.remarks}</div>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <Badge variant="secondary">{categoryLabel(i.category)}</Badge>
                     </TableCell>
@@ -193,17 +211,97 @@ export function MastersView(props: {
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead>Location</TableHead>
+                  <TableHead>Zones</TableHead>
                   <TableHead className="w-10" />
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {props.warehouses.map((w) => (
-                  <TableRow key={w.id}>
-                    <TableCell className="font-medium">{w.name}</TableCell>
-                    <TableCell>{w.location ?? "—"}</TableCell>
+                {props.warehouses.map((w) => {
+                  const wZones = props.zones.filter((z) => z.warehouseId === w.id);
+                  return (
+                    <TableRow key={w.id}>
+                      <TableCell className="font-medium">{w.name}</TableCell>
+                      <TableCell>{w.location ?? "—"}</TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {wZones.map((z) => (
+                            <Badge key={z.id} variant="secondary">
+                              {z.name}
+                            </Badge>
+                          ))}
+                          <ZoneDialog
+                            warehouseId={w.id}
+                            trigger={
+                              <Button variant="outline" size="sm" className="h-6 px-2 text-xs">
+                                <Plus className="mr-1 h-3 w-3" /> Zone
+                              </Button>
+                            }
+                          />
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <WarehouseDialog
+                          warehouse={w}
+                          trigger={
+                            <Button variant="ghost" size="icon-sm" aria-label="Edit">
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                          }
+                        />
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        </TabsContent>
+
+        {/* ---------- Vendors ---------- */}
+        <TabsContent value="vendors" className="mt-4 space-y-3">
+          <div className="flex justify-end">
+            <VendorDialog
+              trigger={
+                <Button size="sm">
+                  <Plus className="mr-1 h-4 w-4" /> Add Vendor
+                </Button>
+              }
+            />
+          </div>
+          <div className="overflow-x-auto rounded-lg border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Contact</TableHead>
+                  <TableHead>Phone</TableHead>
+                  <TableHead>GSTIN</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="w-10" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {props.vendors.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
+                      No vendors yet.
+                    </TableCell>
+                  </TableRow>
+                )}
+                {props.vendors.map((v) => (
+                  <TableRow key={v.id}>
+                    <TableCell className="font-medium">{v.name}</TableCell>
+                    <TableCell>{v.contactName ?? "—"}</TableCell>
+                    <TableCell>{v.phone ?? "—"}</TableCell>
+                    <TableCell>{v.gstin ?? "—"}</TableCell>
                     <TableCell>
-                      <WarehouseDialog
-                        warehouse={w}
+                      <Badge variant={v.active ? "secondary" : "destructive"}>
+                        {v.active ? "Active" : "Inactive"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <VendorDialog
+                        vendor={v}
                         trigger={
                           <Button variant="ghost" size="icon-sm" aria-label="Edit">
                             <Pencil className="h-3.5 w-3.5" />
@@ -368,6 +466,16 @@ function ItemDialog({
           defaultValue={item?.reorderLevel ?? 0}
         />
       </div>
+      <div className="space-y-2">
+        <Label htmlFor="i-remarks">Purchasing note (optional)</Label>
+        <Textarea
+          id="i-remarks"
+          name="remarks"
+          rows={2}
+          placeholder='e.g. "Min 1000 pcs per lot"'
+          defaultValue={item?.remarks ?? ""}
+        />
+      </div>
     </FormDialog>
   );
 }
@@ -387,6 +495,58 @@ function WarehouseDialog({ warehouse, trigger }: { warehouse?: Warehouse; trigge
       <div className="space-y-2">
         <Label htmlFor="w-location">Location</Label>
         <Input id="w-location" name="location" defaultValue={warehouse?.location ?? ""} />
+      </div>
+    </FormDialog>
+  );
+}
+
+function ZoneDialog({ warehouseId, trigger }: { warehouseId: number; trigger: React.ReactNode }) {
+  return (
+    <FormDialog trigger={trigger} title="Add Zone" action={saveWarehouseZone}>
+      <input type="hidden" name="warehouseId" value={warehouseId} />
+      <div className="space-y-2">
+        <Label htmlFor="wz-name">Name</Label>
+        <Input id="wz-name" name="name" placeholder="e.g. Raw Material Yard" required />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="wz-code">Code (optional)</Label>
+        <Input id="wz-code" name="code" placeholder="e.g. RMY" />
+      </div>
+    </FormDialog>
+  );
+}
+
+function VendorDialog({ vendor, trigger }: { vendor?: Vendor; trigger: React.ReactNode }) {
+  return (
+    <FormDialog trigger={trigger} title={vendor ? "Edit Vendor" : "Add Vendor"} action={saveVendor}>
+      {vendor && <input type="hidden" name="id" value={vendor.id} />}
+      <div className="space-y-2">
+        <Label htmlFor="v-name">Name</Label>
+        <Input id="v-name" name="name" defaultValue={vendor?.name} required />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-2">
+          <Label htmlFor="v-contact">Contact person</Label>
+          <Input id="v-contact" name="contactName" defaultValue={vendor?.contactName ?? ""} />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="v-phone">Phone</Label>
+          <Input id="v-phone" name="phone" defaultValue={vendor?.phone ?? ""} />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-2">
+          <Label htmlFor="v-email">Email</Label>
+          <Input id="v-email" name="email" type="email" defaultValue={vendor?.email ?? ""} />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="v-gstin">GSTIN</Label>
+          <Input id="v-gstin" name="gstin" defaultValue={vendor?.gstin ?? ""} />
+        </div>
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="v-address">Address</Label>
+        <Input id="v-address" name="address" defaultValue={vendor?.address ?? ""} />
       </div>
     </FormDialog>
   );

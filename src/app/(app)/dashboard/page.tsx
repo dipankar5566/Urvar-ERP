@@ -1,17 +1,31 @@
 import Link from "next/link";
-import { AlertTriangle, ArrowRight, ShieldCheck } from "lucide-react";
+import { asc } from "drizzle-orm";
+import { ArrowRight, ShieldCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { db } from "@/db";
+import { items } from "@/db/schema";
 import { requireUser } from "@/lib/session";
 import { getDashboardData } from "@/modules/dashboard/queries";
+import { getVendors, getRateHistory } from "@/modules/procurement/queries";
+import { fmtQty, fmtPct } from "@/lib/format";
 import { QC_BADGE } from "@/modules/batches/badges";
+import { StockAlertsCard } from "./stock-alerts-card";
+import { MaintenanceAlertsCard } from "./maintenance-alerts-card";
+import { ProductionTrendCard } from "./production-trend-card";
 
 export default async function DashboardPage() {
   const user = await requireUser();
   const data = getDashboardData();
-
-  const targetPct =
-    data.monthTarget > 0 ? Math.min((data.monthProduction / data.monthTarget) * 100, 100) : null;
+  const vendors = getVendors();
+  const rateHistory = getRateHistory();
+  const purchasableItems = db
+    .select()
+    .from(items)
+    .orderBy(asc(items.name))
+    .all()
+    .filter((i) => i.category !== "finished_good" && i.active);
 
   return (
     <div>
@@ -20,23 +34,69 @@ export default async function DashboardPage() {
         Welcome back, {user.name.split(" ")[0]}.
       </p>
 
-      {/* KPI tiles */}
-      <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Kpi label="Today's Production" value={fmtQty(data.todayProduction)} unit="ton" />
-        <Kpi label="This Month" value={fmtQty(data.monthProduction)} unit="ton" />
-        <Kpi
-          label="Target vs Actual"
-          value={targetPct === null ? "—" : `${targetPct.toFixed(0)}%`}
-          unit={data.monthTarget > 0 ? `of ${fmtQty(data.monthTarget)} ton` : "no target set"}
-        />
-        <Kpi
-          label="Avg Yield (month)"
-          value={data.avgYield === null ? "—" : `${data.avgYield.toFixed(1)}%`}
-          unit={data.avgYield === null ? "no batches yet" : ""}
-        />
+      {/* Production this month, per product — never summed across products,
+          since different products have different units (ton/litre/kg). */}
+      <Card className="mt-6">
+        <CardHeader>
+          <CardTitle className="text-base">Production This Month</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {data.productionByProduct.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No production activity yet this month.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Product</TableHead>
+                    <TableHead className="text-right">Today</TableHead>
+                    <TableHead className="text-right">This Month</TableHead>
+                    <TableHead className="text-right">Target vs Actual</TableHead>
+                    <TableHead className="text-right">Avg Yield</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.productionByProduct.map((p) => {
+                    const uom = p.uom ?? "";
+                    const targetPct = p.monthTarget > 0 ? (p.monthQty / p.monthTarget) * 100 : null;
+                    return (
+                      <TableRow key={p.productId}>
+                        <TableCell className="font-medium">{p.productName}</TableCell>
+                        <TableCell className="text-right font-mono">
+                          {fmtQty(p.todayQty)} {uom}
+                        </TableCell>
+                        <TableCell className="text-right font-mono">
+                          {fmtQty(p.monthQty)} {uom}
+                        </TableCell>
+                        <TableCell className="text-right font-mono">
+                          {targetPct === null ? (
+                            <span className="text-muted-foreground">no target set</span>
+                          ) : (
+                            `${fmtPct(targetPct, 0)} of ${fmtQty(p.monthTarget)} ${uom}`
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right font-mono">
+                          {p.avgYield === null ? (
+                            <span className="text-muted-foreground">—</span>
+                          ) : (
+                            fmtPct(p.avgYield)
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <div className="mt-6">
+        <ProductionTrendCard trend={data.productionTrend} />
       </div>
 
-      <div className="mt-6 grid gap-4 lg:grid-cols-3">
+      <div className="mt-6 grid gap-4 lg:grid-cols-4">
         {/* Active orders */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
@@ -63,7 +123,7 @@ export default async function DashboardPage() {
                         {o.orderNo}
                       </Link>
                       <div className="truncate text-sm text-muted-foreground">
-                        {o.productName} · {o.targetQty} {o.uom} · {o.supervisorName}
+                        {o.productName} · {fmtQty(o.targetQty)} {o.uom} · {o.supervisorName}
                       </div>
                     </div>
                     <Badge variant="default" className="shrink-0">
@@ -76,35 +136,14 @@ export default async function DashboardPage() {
           </CardContent>
         </Card>
 
-        {/* Low stock */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-base">Low Stock Alerts</CardTitle>
-            <Link
-              href="/inventory"
-              className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-            >
-              Inventory <ArrowRight className="h-3.5 w-3.5" />
-            </Link>
-          </CardHeader>
-          <CardContent>
-            {data.lowStock.length === 0 ? (
-              <p className="text-sm text-muted-foreground">All tracked items above reorder level.</p>
-            ) : (
-              <ul className="space-y-2">
-                {data.lowStock.map((s) => (
-                  <li key={s.itemName} className="flex items-center gap-2 text-sm">
-                    <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" />
-                    <span className="font-medium">{s.itemName}</span>
-                    <span className="ml-auto font-mono text-muted-foreground">
-                      {fmtQty(s.qty)} / {fmtQty(s.reorderLevel)} {s.uom}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
+        {/* Stock alerts: low stock (with a Quick-PO shortcut) + expiry */}
+        <StockAlertsCard
+          lowStock={data.lowStock}
+          expiring={data.expiring}
+          vendors={vendors}
+          items={purchasableItems}
+          rateHistory={rateHistory}
+        />
 
         {/* Quality summary */}
         <Card>
@@ -143,11 +182,14 @@ export default async function DashboardPage() {
               data.batchesOnHold === 0 &&
               data.openCapas === 0 && (
                 <p className="flex items-center gap-1.5 pt-1 text-xs text-muted-foreground">
-                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" /> All clear
+                  <ShieldCheck className="h-3.5 w-3.5 text-success" /> All clear
                 </p>
               )}
           </CardContent>
         </Card>
+
+        {/* Bed maintenance: watering/turning/bio-enzyme overdue */}
+        <MaintenanceAlertsCard alerts={data.maintenanceAlerts} />
       </div>
 
       {/* Recent batches */}
@@ -179,7 +221,7 @@ export default async function DashboardPage() {
                       {b.batchNo}
                     </Link>
                     <span className="text-muted-foreground">
-                      {b.productName} · {b.qtyProduced} {b.uom} · yield {b.yieldPct.toFixed(1)}%
+                      {b.productName} · {fmtQty(b.qtyProduced)} {b.uom} · yield {fmtPct(b.yieldPct)}
                     </span>
                     <Badge variant={qc.variant} className="ml-auto">
                       {qc.label}
@@ -193,20 +235,4 @@ export default async function DashboardPage() {
       </Card>
     </div>
   );
-}
-
-function Kpi({ label, value, unit }: { label: string; value: string; unit?: string }) {
-  return (
-    <Card>
-      <CardContent className="pt-6">
-        <div className="text-sm text-muted-foreground">{label}</div>
-        <div className="mt-1 text-2xl font-semibold tabular-nums">{value}</div>
-        {unit && <div className="mt-0.5 text-xs text-muted-foreground">{unit}</div>}
-      </CardContent>
-    </Card>
-  );
-}
-
-function fmtQty(n: number): string {
-  return Number(n.toFixed(2)).toLocaleString("en-IN");
 }

@@ -36,6 +36,55 @@
       "when": 1783447145491,
       "tag": "0004_add_qc_phase2",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1783452578081,
+      "tag": "0005_add_inventory_depth_phase3",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1783455109666,
+      "tag": "0006_add_procurement_phase4",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1783492999141,
+      "tag": "0007_add_items_remarks",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1783519274951,
+      "tag": "0008_add_bed_maintenance_log",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1783539044383,
+      "tag": "0009_add_production_cost_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1783577067158,
+      "tag": "0010_add_site_geometry",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1783577221900,
+      "tag": "0011_backfill_site_geometry",
+      "breakpoints": true
     }
   ]
 }
