@@ -49,3 +49,8 @@ next-env.d.ts
 # local DB snapshots (contain business data) and dev logs
 /backups/
 dev-server.log
+
+# stale build copies and server logs
+/.next.bak/
+erp-3001.log
+erp-3001.err.log

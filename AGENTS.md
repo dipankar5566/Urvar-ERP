@@ -164,6 +164,43 @@ any of the four.
   call the action via `useTransition` — see `FormulaDialog` (`masters/formula-editor.tsx`) or
   `PODialog` (`procurement/procurement-view.tsx`) as the reference pattern for a new one.
 
+## Deployment reality — read before touching a build or the database
+
+- **`localhost:3001` IS production.** `erp.urvarindia.com` is a Cloudflare tunnel pointing at
+  port 3001 on this machine; there is no other host, no CI, and nothing deploys on `git push`.
+  The process is normally started by hand as Administrator, so a non-elevated session cannot
+  kill or restart it — that step needs the user.
+- **`DATABASE_URL` is the production database.** The local Postgres `urvar_erp` is what the
+  live site serves. There is no separate dev database: any wipe, seed or migration run from
+  this repo hits real business data immediately. `urvar_crm` also reads it live over
+  `postgres_fdw`. Snapshot before destructive work — there is no `pg_dump` here, so dump every
+  table to JSON with the `pg` client (see `backups/`, which is git-ignored).
+- **Never run `next build` into the live `.next`.** A build that fails at prerender has already
+  overwritten `static/chunks` with new hashed filenames, so the running server keeps serving
+  HTML referencing files that no longer exist — every chunk 404/500s, pages render as blank
+  shells, and *HTTP checks still return 200*. Copying `.next` aside is not a safe backup either:
+  `cp -r` turns Turbopack's junction points into real directories and the next `next dev` panics
+  with `failed to create junction point … The directory is not empty`. Build into a scratch
+  `distDir` and swap only on success; if `.next` is already broken, delete it entirely and let
+  dev mode rebuild.
+- **Running `next dev` behind the tunnel needs `allowedDevOrigins`** (`next.config.ts`). Without
+  the tunnel hostname listed, Next blocks its own dev assets cross-origin: pages render but no
+  button, dialog or tab responds, because client JS never initialises. Server-rendered HTML
+  looks perfect, so this only shows up by driving the real UI.
+- **`next build` is currently broken** — every route fails prerendering with
+  `InvariantError: Expected workStore to be initialized`, thrown from
+  `next/dist/server/request/{params,search-params,pathname}.js`. It is not caused by app code in
+  `global-error.tsx`, not the Next version (16.2.9 and 16.2.10 both fail), and not stale
+  artifacts (a from-scratch build fails identically). The last good build predates the
+  Postgres/CRM work, so bisect that range to find it. **Until it is fixed, production runs
+  `next dev` on port 3001** — slower, recompiles on edit, and lost on reboot since nothing
+  supervises it.
+- **A 200 is not proof the site works.** Both outages in this repo's history served 200 for the
+  HTML while the app was dead client-side. Verify by logging in and loading pages with
+  Playwright, failing on any 4xx/5xx sub-resource — `verify-live.mjs` and `diag-buttons.mjs`
+  at the repo root do exactly this, the latter read-only (it opens dialogs and presses Escape,
+  never submits) so it is safe to point at production.
+
 ## Test expectations
 
 - **There is no unit/integration test suite in this repo, and none should be added unprompted.**
