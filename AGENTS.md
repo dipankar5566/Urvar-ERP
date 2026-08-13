@@ -14,8 +14,12 @@ any of the four.
 ## Architecture rules
 
 - **Stack**: Next.js 16 (App Router, Turbopack, async-only `cookies()`/`params`, `proxy.ts`
-  not `middleware.ts`) + Drizzle ORM + better-sqlite3 (single file, `data/urvar.db`, WAL) +
-  Tailwind + shadcn/ui (Base UI variant — `@base-ui/react`, not Radix).
+  not `middleware.ts`) + Drizzle ORM + PostgreSQL (`node-postgres` `Pool`, connection string in
+  `DATABASE_URL`) + Tailwind + shadcn/ui (Base UI variant — `@base-ui/react`, not Radix).
+  The project began on better-sqlite3; `data/urvar.db` is a leftover of that and is no longer
+  read by anything — the live database is Postgres. Because the pool may hand a different
+  connection to each query, anything that must run inside one transaction takes the `tx`
+  handed to it (`DbOrTx`) rather than closing over the module-level `db`.
 - **Mutations are Server Actions, not API routes.** No internal REST/JSON endpoints for CRUD —
   every write is a `"use server"` function in a module's `actions.ts`, called directly from a
   client component via `useTransition` or through `FormDialog`.
@@ -24,8 +28,17 @@ any of the four.
   of truth; `stock_balances` is a derived running total keyed on
   `(itemId, warehouseId, zoneId, lotId, batchId)` — the ledger function maintains both in the
   same call.
-- **Every multi-step mutation runs inside `atomic()`** (`sqlite.transaction`, also in
-  `ledger.ts`) — partial writes on error are not acceptable.
+- **Every multi-step mutation runs inside `atomic()`** (`db.transaction`, also in
+  `ledger.ts`) — partial writes on error are not acceptable. **Two deliberate exceptions:**
+  `procurement/actions.ts` and `production/actions.ts` had their `atomic()` wrappers removed
+  on request and now write directly on `db`. Consequences that are live in those two modules,
+  not hypothetical: a FIFO shortage part-way through `startProductionOrder` leaves earlier
+  materials already issued (reverse them with a manual stock adjustment before retrying, or
+  they are consumed twice); a failed line insert in `savePurchaseOrder`'s edit branch leaves
+  the PO with no lines; and concurrent `completeProductionOrder` calls can collide on the
+  `UNIQUE batches.batch_no`. Guard clauses in those two files therefore validate *before* the
+  first write and `return { ok: false }` instead of throwing mid-sequence — keep that ordering
+  when editing them. Every other module still uses `atomic()`; don't remove it from them.
 - **Every mutation calls `writeAudit()`** — action name, entity, entityId, before/after JSON.
 - **Zod-validate every Server Action's input**, return the shared `ActionResult` type
   (`{ ok: true } | { ok: false; error: string }`, defined in `src/modules/masters/actions.ts`,
@@ -108,10 +121,11 @@ any of the four.
   output even against a fresh DB, and the `__drizzle_migrations` ledger is permanently out of
   sync with reality (migrations were never successfully applied through it). Apply new
   migration SQL files directly instead: split on `--> statement-breakpoint` and execute against
-  `data/urvar.db` (sqlite3 CLI or a small script), then restart the dev server. Keep writing
-  migration files as the upgrade record regardless. Also: don't mix ALTERs with DML that
-  reads the new columns in one file — split DDL (see 0010) and backfill (0011) so each file
-  prepares cleanly on its own.
+  the `DATABASE_URL` database, then restart the dev server. Keep writing migration files as the
+  upgrade record regardless. Also: don't mix ALTERs with DML that reads the new columns in one
+  file — split DDL (see 0010) and backfill (0011) so each file prepares cleanly on its own.
+  Note there is no `psql`/`pg_dump` on this machine — run SQL through a small Node script using
+  the `pg` client (with `dotenv` for `DATABASE_URL`), and take backups the same way.
 - **Status colors are semantic theme tokens**, defined once in `globals.css`: `--success`
   (healthy/composting), `--warning` (needs attention), `--info` (structures/informational),
   plus the categorical `--chart-1..5` ramp for chart series. Use `text-success`,
@@ -156,9 +170,15 @@ any of the four.
   Correctness is established by driving the real running app, not by `npm test`.
 - **Verification means**: start the dev server, drive the actual flow through the browser
   (Playwright + system Chrome, `chromium.launch({ channel: "chrome", headless: true })`), and
-  cross-check the outcome directly against `data/urvar.db` via `sqlite3` — ledger rows, status
-  transitions, stock balances. Toast text alone is not sufficient evidence (Sonner toasts can
-  lag one action behind in a tight automated loop).
+  cross-check the outcome directly against Postgres via a `pg` client script — ledger rows,
+  status transitions, stock balances. Toast text alone is not sufficient evidence (Sonner
+  toasts can lag one action behind in a tight automated loop). Two gotchas that have produced
+  hangs and false passes: PO row actions live inside the detail dialog behind the
+  `aria-label="View"` eye icon rather than in the table row, and closing a PO with nothing
+  received fires a real `window.confirm` — register a Playwright `dialog` handler or the click
+  blocks for the full timeout. Hand-built dialogs also hydrate their state a tick after mount,
+  so a `fill()` issued too early is silently overwritten by the persisted value; wait for the
+  existing value to appear, then type over it and assert it stuck.
 - **`.claude/skills/verify/SKILL.md`** is this repo's accumulated verification recipe and
   gotcha list — read it before writing a new verification script, and add to it when you learn
   something new (a UI quirk, a race condition, a locator ambiguity that produced a false pass).
@@ -208,11 +228,11 @@ src/
     password.ts  utils.ts
   db/
     schema.ts                    # all Drizzle table definitions, single file
-    index.ts                     # db + sqlite client
+    index.ts                     # db + pg Pool; Db / Tx / DbOrTx types
     migrations/                  # hand-written SQL (drizzle-kit generate --custom + edit)
     seed.ts  seed-beds.ts
   proxy.ts                        # Next 16's middleware.ts equivalent — session cookie handling
 .claude/skills/verify/SKILL.md    # verification recipe + accumulated gotchas — read before testing
 *.mjs (repo root)                 # phaseN-verify.mjs / e2e-walkthrough.mjs — verification scripts
-data/urvar.db                     # the SQLite database (WAL mode)
+data/urvar.db                     # dead SQLite file from the pre-Postgres era — nothing reads it
 ```

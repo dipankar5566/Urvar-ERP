@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Plus } from "lucide-react";
 import {
   Table,
@@ -18,6 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { FormDialog, NativeSelect } from "@/components/form-dialog";
 import { createProductionOrder } from "@/modules/production/actions";
+import { convertProductionRequest } from "@/modules/production/requests-actions";
 import type { OrderRow } from "@/modules/production/queries";
 import type { Product, Formula, Warehouse, WorkflowTemplate } from "@/modules/masters/types";
 import { fmtQty } from "@/lib/format";
@@ -38,8 +40,27 @@ export function ProductionView({
   warehouses: Warehouse[];
   supervisors: { id: number; name: string }[];
 }) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  // Arriving from Production Requests' "Convert" link — pre-fill and
+  // auto-open the New Order dialog. createProductionOrder() itself is
+  // completely unmodified; a supervisor still picks formula/template/
+  // warehouse/supervisor/shift exactly as they always have.
+  const requestId = searchParams.get("requestId");
+  const requestedProductId = searchParams.get("productId");
+  const requestedQty = searchParams.get("qty");
+
   const [filter, setFilter] = useState<string>("all");
-  const [productId, setProductId] = useState<number>(products[0]?.id ?? 0);
+  const [productId, setProductId] = useState<number>(
+    (requestedProductId && Number(requestedProductId)) || products[0]?.id || 0
+  );
+
+  function handleOrderCreated(result: { id?: number }) {
+    if (requestId && result.id) {
+      convertProductionRequest(Number(requestId), result.id);
+    }
+    if (requestId) router.replace("/production");
+  }
 
   const productFormulas = formulas.filter((f) => f.productId === productId);
   const productTemplates = templates.filter((t) => !t.productId || t.productId === productId);
@@ -58,6 +79,8 @@ export function ProductionView({
           title="New Production Order"
           action={createProductionOrder}
           submitLabel="Create Order"
+          defaultOpen={!!requestId}
+          onSuccess={handleOrderCreated}
           trigger={
             <Button size="sm">
               <Plus className="mr-1 h-4 w-4" /> New Order
@@ -104,7 +127,15 @@ export function ProductionView({
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
               <Label htmlFor="po-qty">Target quantity</Label>
-              <Input id="po-qty" name="targetQty" type="number" min={0} step="any" required />
+              <Input
+                id="po-qty"
+                name="targetQty"
+                type="number"
+                min={0}
+                step="any"
+                required
+                defaultValue={requestedQty ?? undefined}
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="po-wh">Warehouse</Label>

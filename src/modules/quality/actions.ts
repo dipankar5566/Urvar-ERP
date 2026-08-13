@@ -3,11 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { eq, and, sql } from "drizzle-orm";
-import { db } from "@/db";
+import { db, type DbOrTx } from "@/db";
 import { lots, batches, batchTestResults, capas } from "@/db/schema";
 import { requireUser } from "@/lib/session";
 import { atomic, writeAudit } from "@/lib/ledger";
 import { nextDocNumber } from "@/lib/numbering";
+import { writeCrmTraceEvent } from "@/lib/crm-trace";
 import type { ActionResult } from "@/modules/masters/actions";
 
 function fail(e: unknown): ActionResult {
@@ -35,11 +36,12 @@ export async function recordLotInspection(formData: FormData): Promise<ActionRes
     }
     const data = inspectionSchema.parse(raw);
 
-    const lot = db.select().from(lots).where(eq(lots.id, data.lotId)).get();
+    const lot = (await db.select().from(lots).where(eq(lots.id, data.lotId)))[0];
     if (!lot) return { ok: false, error: "Lot not found" };
 
-    atomic(() => {
-      db.update(lots)
+    await atomic(async (tx) => {
+      await tx
+        .update(lots)
         .set({
           qcStatus: data.result,
           moisturePct: data.moisturePct,
@@ -50,10 +52,9 @@ export async function recordLotInspection(formData: FormData): Promise<ActionRes
           inspectedBy: user.id,
           inspectedAt: new Date().toISOString(),
         })
-        .where(eq(lots.id, data.lotId))
-        .run();
+        .where(eq(lots.id, data.lotId));
 
-      writeAudit({
+      await writeAudit(tx, {
         actorId: user.id,
         action: "quality.lot_inspection",
         entity: "lots",
@@ -72,7 +73,8 @@ export async function recordLotInspection(formData: FormData): Promise<ActionRes
 
 // ---------- Batch QC workflow ----------
 
-function transitionBatch(
+async function transitionBatch(
+  tx: DbOrTx,
   batchId: number,
   from: string[],
   to: "sample_collected" | "testing" | "released" | "hold",
@@ -80,13 +82,13 @@ function transitionBatch(
   action: string,
   extra?: Record<string, unknown>
 ) {
-  const batch = db.select().from(batches).where(eq(batches.id, batchId)).get();
+  const batch = (await tx.select().from(batches).where(eq(batches.id, batchId)))[0];
   if (!batch) throw new Error("Batch not found");
   if (!from.includes(batch.qcStatus)) {
     throw new Error(`Batch is ${batch.qcStatus}, expected ${from.join(" or ")}`);
   }
-  db.update(batches).set({ qcStatus: to }).where(eq(batches.id, batchId)).run();
-  writeAudit({
+  await tx.update(batches).set({ qcStatus: to }).where(eq(batches.id, batchId));
+  await writeAudit(tx, {
     actorId,
     action,
     entity: "batches",
@@ -94,13 +96,21 @@ function transitionBatch(
     before: { qcStatus: batch.qcStatus },
     after: { qcStatus: to, ...extra },
   });
+
+  if (to === "released") {
+    await writeCrmTraceEvent(tx, batch.orderId, "batch_released", {
+      batchNo: batch.batchNo,
+      qtyProduced: batch.qtyProduced,
+      uom: batch.uom,
+    });
+  }
 }
 
 export async function collectSample(batchId: number): Promise<ActionResult> {
   try {
     const user = await requireUser();
-    atomic(() =>
-      transitionBatch(batchId, ["pending"], "sample_collected", user.id, "quality.collect_sample")
+    await atomic((tx) =>
+      transitionBatch(tx, batchId, ["pending"], "sample_collected", user.id, "quality.collect_sample")
     );
     revalidatePath("/batches");
     revalidatePath(`/batches/${batchId}`);
@@ -114,8 +124,9 @@ export async function collectSample(batchId: number): Promise<ActionResult> {
 export async function startTesting(batchId: number): Promise<ActionResult> {
   try {
     const user = await requireUser();
-    atomic(() =>
+    await atomic((tx) =>
       transitionBatch(
+        tx,
         batchId,
         ["sample_collected", "hold"],
         "testing",
@@ -161,7 +172,7 @@ export async function recordTestResult(formData: FormData): Promise<ActionResult
     if (raw.value === "") delete raw.value;
     const data = testResultSchema.parse(raw);
 
-    const batch = db.select().from(batches).where(eq(batches.id, data.batchId)).get();
+    const batch = (await db.select().from(batches).where(eq(batches.id, data.batchId)))[0];
     if (!batch) return { ok: false, error: "Batch not found" };
     if (batch.qcStatus !== "testing") {
       return { ok: false, error: `Batch is ${batch.qcStatus}, expected testing` };
@@ -170,18 +181,16 @@ export async function recordTestResult(formData: FormData): Promise<ActionResult
       return { ok: false, error: "Enter a value" };
     }
 
-    atomic(() => {
-      db.insert(batchTestResults)
-        .values({
-          batchId: data.batchId,
-          parameter: data.parameter,
-          value: data.value,
-          textValue: data.textValue,
-          unit: data.unit,
-          recordedBy: user.id,
-        })
-        .run();
-      writeAudit({
+    await atomic(async (tx) => {
+      await tx.insert(batchTestResults).values({
+        batchId: data.batchId,
+        parameter: data.parameter,
+        value: data.value,
+        textValue: data.textValue,
+        unit: data.unit,
+        recordedBy: user.id,
+      });
+      await writeAudit(tx, {
         actorId: user.id,
         action: "quality.record_test_result",
         entity: "batch_test_results",
@@ -200,16 +209,14 @@ export async function recordTestResult(formData: FormData): Promise<ActionResult
 export async function releaseBatch(batchId: number): Promise<ActionResult> {
   try {
     const user = await requireUser();
-    const resultCount = db
-      .select({ n: sql<number>`count(*)` })
-      .from(batchTestResults)
-      .where(eq(batchTestResults.batchId, batchId))
-      .get()!.n;
+    const resultCount = (
+      await db.select({ n: sql<number>`count(*)` }).from(batchTestResults).where(eq(batchTestResults.batchId, batchId))
+    )[0]!.n;
     if (resultCount === 0) {
       return { ok: false, error: "Record at least one test result before releasing" };
     }
-    atomic(() =>
-      transitionBatch(batchId, ["testing"], "released", user.id, "quality.release_batch")
+    await atomic((tx) =>
+      transitionBatch(tx, batchId, ["testing"], "released", user.id, "quality.release_batch")
     );
     revalidatePath("/batches");
     revalidatePath(`/batches/${batchId}`);
@@ -229,8 +236,9 @@ export async function holdBatch(formData: FormData): Promise<ActionResult> {
   try {
     const user = await requireUser();
     const data = holdSchema.parse(Object.fromEntries(formData));
-    atomic(() =>
+    await atomic((tx) =>
       transitionBatch(
+        tx,
         data.batchId,
         ["pending", "sample_collected", "testing"],
         "hold",
@@ -251,8 +259,8 @@ export async function holdBatch(formData: FormData): Promise<ActionResult> {
 export async function retestBatch(batchId: number): Promise<ActionResult> {
   try {
     const user = await requireUser();
-    atomic(() =>
-      transitionBatch(batchId, ["hold"], "testing", user.id, "quality.retest_batch")
+    await atomic((tx) =>
+      transitionBatch(tx, batchId, ["hold"], "testing", user.id, "quality.retest_batch")
     );
     revalidatePath("/batches");
     revalidatePath(`/batches/${batchId}`);
@@ -282,22 +290,23 @@ export async function createCapa(formData: FormData): Promise<ActionResult> {
     }
     const data = capaSchema.parse(raw);
 
-    atomic(() => {
-      const capaNo = nextDocNumber("CAPA");
-      const capa = db
-        .insert(capas)
-        .values({
-          capaNo,
-          issue: data.issue,
-          linkedBatchId: data.linkedBatchId,
-          linkedLotId: data.linkedLotId,
-          responsibleUserId: data.responsibleUserId,
-          deadline: data.deadline,
-          createdBy: user.id,
-        })
-        .returning()
-        .get();
-      writeAudit({
+    await atomic(async (tx) => {
+      const capaNo = await nextDocNumber(tx, "CAPA");
+      const capa = (
+        await tx
+          .insert(capas)
+          .values({
+            capaNo,
+            issue: data.issue,
+            linkedBatchId: data.linkedBatchId,
+            linkedLotId: data.linkedLotId,
+            responsibleUserId: data.responsibleUserId,
+            deadline: data.deadline,
+            createdBy: user.id,
+          })
+          .returning()
+      )[0];
+      await writeAudit(tx, {
         actorId: user.id,
         action: "quality.create_capa",
         entity: "capas",
@@ -332,11 +341,12 @@ export async function updateCapa(formData: FormData): Promise<ActionResult> {
     }
     const data = updateCapaSchema.parse(raw);
 
-    const capa = db.select().from(capas).where(eq(capas.id, data.capaId)).get();
+    const capa = (await db.select().from(capas).where(eq(capas.id, data.capaId)))[0];
     if (!capa) return { ok: false, error: "CAPA not found" };
 
-    atomic(() => {
-      db.update(capas)
+    await atomic(async (tx) => {
+      await tx
+        .update(capas)
         .set({
           rootCause: data.rootCause,
           correctiveAction: data.correctiveAction,
@@ -345,9 +355,8 @@ export async function updateCapa(formData: FormData): Promise<ActionResult> {
           deadline: data.deadline,
           status: data.status,
         })
-        .where(eq(capas.id, data.capaId))
-        .run();
-      writeAudit({
+        .where(eq(capas.id, data.capaId));
+      await writeAudit(tx, {
         actorId: user.id,
         action: "quality.update_capa",
         entity: "capas",
@@ -374,20 +383,20 @@ export async function closeCapa(formData: FormData): Promise<ActionResult> {
     const user = await requireUser();
     const data = closeCapaSchema.parse(Object.fromEntries(formData));
 
-    const capa = db.select().from(capas).where(eq(capas.id, data.capaId)).get();
+    const capa = (await db.select().from(capas).where(eq(capas.id, data.capaId)))[0];
     if (!capa) return { ok: false, error: "CAPA not found" };
     if (capa.status === "closed") return { ok: false, error: "CAPA is already closed" };
 
-    atomic(() => {
-      db.update(capas)
+    await atomic(async (tx) => {
+      await tx
+        .update(capas)
         .set({
           status: "closed",
           verificationNotes: data.verificationNotes,
           closedAt: new Date().toISOString(),
         })
-        .where(eq(capas.id, data.capaId))
-        .run();
-      writeAudit({
+        .where(eq(capas.id, data.capaId));
+      await writeAudit(tx, {
         actorId: user.id,
         action: "quality.close_capa",
         entity: "capas",

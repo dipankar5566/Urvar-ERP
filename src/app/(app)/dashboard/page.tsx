@@ -17,15 +17,12 @@ import { ProductionTrendCard } from "./production-trend-card";
 
 export default async function DashboardPage() {
   const user = await requireUser();
-  const data = getDashboardData();
-  const vendors = getVendors();
-  const rateHistory = getRateHistory();
-  const purchasableItems = db
-    .select()
-    .from(items)
-    .orderBy(asc(items.name))
-    .all()
-    .filter((i) => i.category !== "finished_good" && i.active);
+  const data = await getDashboardData();
+  const vendors = await getVendors();
+  const rateHistory = await getRateHistory();
+  const purchasableItems = (await db.select().from(items).orderBy(asc(items.name))).filter(
+    (i) => i.category !== "finished_good" && i.active
+  );
 
   return (
     <div>

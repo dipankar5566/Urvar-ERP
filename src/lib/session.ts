@@ -58,7 +58,7 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   }
   if (payload.exp < Date.now()) return null;
 
-  const user = db.select().from(users).where(eq(users.id, payload.uid)).get();
+  const user = (await db.select().from(users).where(eq(users.id, payload.uid)))[0];
   if (!user || !user.active) return null;
   return { id: user.id, name: user.name, username: user.username, role: user.role };
 }

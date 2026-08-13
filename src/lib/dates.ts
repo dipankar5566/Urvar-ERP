@@ -8,12 +8,26 @@ export function localDateISO(date = new Date()): string {
   return `${y}-${m}-${d}`;
 }
 
-// Stored timestamps come in two formats in this app: JS `toISOString()`
-// ("...T...Z") and SQLite's `datetime('now')` default ("YYYY-MM-DD HH:MM:SS",
-// no T, no Z, implicitly UTC). Normalize either into a real Date.
+// Columns with a DB-generated default (createdAt, recordedAt, ...) are
+// Postgres `timestamptz` read back as text (mode: "string" in schema.ts,
+// chosen specifically to avoid every consumer of these fields needing to
+// handle a native JS Date) — format is "YYYY-MM-DD HH:MM:SS.ffffff+TZ",
+// space-separated, not ISO's "T". Columns the app itself writes (mfgDate,
+// startedAt, ...) still use JS `toISOString()` ("...T...Z"). Normalize
+// either into a real Date; also tolerates a bare "+00" offset (no minutes),
+// which the JS Date constructor doesn't reliably parse on its own.
 export function parseStoredDate(stored: string): Date {
-  const iso = stored.includes("T") ? stored : stored.replace(" ", "T") + "Z";
-  return new Date(iso);
+  // Pure date, no time component (mfgDate/expiryDate/localDateISO() output)
+  // — hand straight to Date before any offset-guessing runs, since a bare
+  // "YYYY-MM-DD" string's trailing "-DD" would otherwise be misread as a
+  // negative UTC offset by the checks below.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(stored)) return new Date(stored);
+
+  let s = stored.includes("T") ? stored : stored.replace(" ", "T");
+  if (!/[zZ]$/.test(s) && !/[+-]\d{2}:\d{2}$/.test(s)) {
+    s = /[+-]\d{2}$/.test(s) ? `${s}:00` : `${s}Z`;
+  }
+  return new Date(s);
 }
 
 // Render a stored UTC timestamp (ISO or sqlite "YYYY-MM-DD HH:MM:SS") in local time.

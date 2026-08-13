@@ -1,4 +1,4 @@
-import { db } from "./index";
+import { db, pool } from "./index";
 import {
   users,
   products,
@@ -12,7 +12,7 @@ import {
 import { hashPassword } from "../lib/password";
 
 async function seed() {
-  const existing = db.select().from(users).limit(1).all();
+  const existing = await db.select().from(users).limit(1);
   if (existing.length > 0) {
     console.log("Database already seeded — skipping.");
     return;
@@ -21,7 +21,7 @@ async function seed() {
   console.log("Seeding Urvar ERP database...");
 
   // --- Users ---
-  const [admin] = db
+  const [admin] = await db
     .insert(users)
     .values([
       {
@@ -37,16 +37,13 @@ async function seed() {
         role: "supervisor",
       },
     ])
-    .returning()
-    .all();
+    .returning();
 
   // --- Warehouse ---
-  db.insert(warehouses)
-    .values({ name: "Kisanbandhu Plant", location: "West Bengal" })
-    .run();
+  await db.insert(warehouses).values({ name: "Tantipara Plant", location: "West Bengal" });
 
   // --- Products ---
-  const productRows = db
+  const productRows = await db
     .insert(products)
     .values([
       { name: "Vermicompost", code: "VC", hsn: "3101", shelfLifeMonths: 24 },
@@ -58,13 +55,12 @@ async function seed() {
       { name: "Liquid Fertilizer", code: "LF", hsn: "3101", shelfLifeMonths: 12 },
       { name: "Micronutrient Mix", code: "MN", hsn: "3824", shelfLifeMonths: 24 },
     ])
-    .returning()
-    .all();
+    .returning();
 
   const vermicompost = productRows.find((p) => p.code === "VC")!;
 
   // --- Items ---
-  const itemRows = db
+  const itemRows = await db
     .insert(items)
     .values([
       {
@@ -103,15 +99,14 @@ async function seed() {
         reorderLevel: 0,
       })),
     ])
-    .returning()
-    .all();
+    .returning();
 
   const cowDung = itemRows.find((i) => i.name === "Cow Dung")!;
   const agriWaste = itemRows.find((i) => i.name === "Agricultural Waste")!;
   const bags25 = itemRows.find((i) => i.name === "HDPE Bag 25kg")!;
 
   // --- Formula: Vermicompost 1 ton ---
-  const [vcFormula] = db
+  const [vcFormula] = await db
     .insert(formulas)
     .values({
       name: "Vermicompost Standard (per ton)",
@@ -119,23 +114,19 @@ async function seed() {
       outputQty: 1,
       outputUom: "ton",
     })
-    .returning()
-    .all();
+    .returning();
 
-  db.insert(formulaLines)
-    .values([
-      { formulaId: vcFormula.id, itemId: cowDung.id, qtyPerOutput: 1.6 },
-      { formulaId: vcFormula.id, itemId: agriWaste.id, qtyPerOutput: 0.4 },
-      { formulaId: vcFormula.id, itemId: bags25.id, qtyPerOutput: 40 },
-    ])
-    .run();
+  await db.insert(formulaLines).values([
+    { formulaId: vcFormula.id, itemId: cowDung.id, qtyPerOutput: 1.6 },
+    { formulaId: vcFormula.id, itemId: agriWaste.id, qtyPerOutput: 0.4 },
+    { formulaId: vcFormula.id, itemId: bags25.id, qtyPerOutput: 40 },
+  ]);
 
   // --- Vermicompost workflow template ---
-  const [vcTemplate] = db
+  const [vcTemplate] = await db
     .insert(workflowTemplates)
     .values({ name: "Vermicompost Manufacturing", productId: vermicompost.id })
-    .returning()
-    .all();
+    .returning();
 
   const stages: { name: string; expectedDays?: number; requiresReadings?: boolean }[] = [
     { name: "Raw Material Received" },
@@ -156,23 +147,23 @@ async function seed() {
     { name: "Warehouse" },
   ];
 
-  db.insert(workflowTemplateStages)
-    .values(
-      stages.map((s, i) => ({
-        templateId: vcTemplate.id,
-        seq: i + 1,
-        name: s.name,
-        expectedDays: s.expectedDays ?? null,
-        requiresReadings: s.requiresReadings ?? false,
-      }))
-    )
-    .run();
+  await db.insert(workflowTemplateStages).values(
+    stages.map((s, i) => ({
+      templateId: vcTemplate.id,
+      seq: i + 1,
+      name: s.name,
+      expectedDays: s.expectedDays ?? null,
+      requiresReadings: s.requiresReadings ?? false,
+    }))
+  );
 
   console.log("Seed complete.");
   console.log("Login — admin / admin123, supervisor / super123");
 }
 
-seed().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+seed()
+  .catch((e) => {
+    console.error(e);
+    process.exitCode = 1;
+  })
+  .finally(() => pool.end());

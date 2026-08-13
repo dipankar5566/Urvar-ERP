@@ -20,14 +20,18 @@ export function FormDialog({
   action,
   children,
   submitLabel = "Save",
+  defaultOpen = false,
+  onSuccess,
 }: {
   trigger: React.ReactNode;
   title: string;
   action: (formData: FormData) => Promise<ActionResult>;
   children: React.ReactNode;
   submitLabel?: string;
+  defaultOpen?: boolean;
+  onSuccess?: (result: Extract<ActionResult, { ok: true }>) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [pending, startTransition] = useTransition();
 
   function handleSubmit(formData: FormData) {
@@ -36,6 +40,7 @@ export function FormDialog({
       if (result.ok) {
         toast.success(`${title} saved`);
         setOpen(false);
+        onSuccess?.(result);
       } else {
         toast.error(result.error);
       }

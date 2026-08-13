@@ -15,7 +15,7 @@ export async function login(_prev: { error?: string } | undefined, formData: For
     return { error: "Enter username and password" };
   }
 
-  const user = db.select().from(users).where(eq(users.username, username)).get();
+  const user = (await db.select().from(users).where(eq(users.username, username)))[0];
   if (!user || !user.active || !(await verifyPassword(password, user.passwordHash))) {
     return { error: "Invalid username or password" };
   }

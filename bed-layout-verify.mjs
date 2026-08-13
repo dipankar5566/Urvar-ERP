@@ -68,7 +68,7 @@ async function goodsReceipt(itemLabelPart, qty, supplier) {
   await page.waitForTimeout(300);
 }
 await goodsReceipt("Cow Dung (ton)", 20, "Ghosh Dairy Farm");
-await goodsReceipt("Agricultural Waste (ton)", 8, "Local Farmers Co-op");
+await goodsReceipt("Agricultural Waste (tractor)", 8, "Local Farmers Co-op");
 await goodsReceipt("HDPE Bag 25kg (nos)", 1000, "Kolkata Packaging Co");
 
 // ---------- 4. Create a small order, assign Z2-01 + Z2-02, start it ----------

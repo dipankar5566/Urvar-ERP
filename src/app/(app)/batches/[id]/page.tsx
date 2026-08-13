@@ -16,18 +16,19 @@ import { getBatchDetail } from "@/modules/batches/queries";
 import { QC_BADGE } from "@/modules/batches/badges";
 import { getBatchTestResults } from "@/modules/quality/queries";
 import { BatchQcSection } from "./batch-qc-section";
+import { DispatchSection } from "./dispatch-section";
 import { fmtDateTime } from "@/lib/dates";
 import { fmtQty, fmtMoney, fmtPct } from "@/lib/format";
 
 export default async function BatchDetailPage(props: PageProps<"/batches/[id]">) {
   await requireUser();
   const { id } = await props.params;
-  const detail = getBatchDetail(Number(id));
+  const detail = await getBatchDetail(Number(id));
   if (!detail) notFound();
 
   const { batch, inputs, stages, readings, currentStock, cost } = detail;
   const qc = QC_BADGE[batch.qcStatus];
-  const testResults = getBatchTestResults(batch.id);
+  const testResults = await getBatchTestResults(batch.id);
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -58,6 +59,12 @@ export default async function BatchDetailPage(props: PageProps<"/batches/[id]">)
       </div>
 
       <BatchQcSection batchId={batch.id} qcStatus={batch.qcStatus} results={testResults} />
+      <DispatchSection
+        batchId={batch.id}
+        qcStatus={batch.qcStatus}
+        dispatchStatus={batch.dispatchStatus}
+        uom={batch.uom}
+      />
 
       <Card className="mt-6">
         <CardHeader>

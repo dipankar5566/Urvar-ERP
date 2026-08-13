@@ -270,7 +270,7 @@ export function LayoutView({
         <div>
           <h1 className="text-xl font-semibold">Site Layout</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Kisanbandhu plant — {layout.beds.length} vermicompost beds ({occupiedCount} occupied).
+            Tantipara plant — {layout.beds.length} vermicompost beds ({occupiedCount} occupied).
             Click a bed for details.
           </p>
         </div>

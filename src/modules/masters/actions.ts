@@ -20,7 +20,7 @@ import { requireAdmin } from "@/lib/session";
 import { hashPassword } from "@/lib/password";
 import { atomic, writeAudit } from "@/lib/ledger";
 
-export type ActionResult = { ok: true } | { ok: false; error: string };
+export type ActionResult = { ok: true; id?: number } | { ok: false; error: string };
 
 function fail(e: unknown): ActionResult {
   return { ok: false, error: e instanceof Error ? e.message : "Something went wrong" };
@@ -42,20 +42,21 @@ export async function saveProduct(formData: FormData): Promise<ActionResult> {
   try {
     const admin = await requireAdmin();
     const data = productSchema.parse(Object.fromEntries(formData));
-    atomic(() => {
+    await atomic(async (tx) => {
       if (data.id) {
-        db.update(products)
+        await tx
+          .update(products)
           .set({ name: data.name, code: data.code, hsn: data.hsn, shelfLifeMonths: data.shelfLifeMonths })
-          .where(eq(products.id, data.id))
-          .run();
-        writeAudit({ actorId: admin.id, action: "product.update", entity: "products", entityId: data.id, after: data });
+          .where(eq(products.id, data.id));
+        await writeAudit(tx, { actorId: admin.id, action: "product.update", entity: "products", entityId: data.id, after: data });
       } else {
-        const row = db
-          .insert(products)
-          .values({ name: data.name, code: data.code, hsn: data.hsn, shelfLifeMonths: data.shelfLifeMonths })
-          .returning()
-          .get();
-        writeAudit({ actorId: admin.id, action: "product.create", entity: "products", entityId: row.id, after: data });
+        const row = (
+          await tx
+            .insert(products)
+            .values({ name: data.name, code: data.code, hsn: data.hsn, shelfLifeMonths: data.shelfLifeMonths })
+            .returning()
+        )[0];
+        await writeAudit(tx, { actorId: admin.id, action: "product.create", entity: "products", entityId: row.id, after: data });
       }
     });
     revalidatePath("/masters");
@@ -83,7 +84,7 @@ export async function saveItem(formData: FormData): Promise<ActionResult> {
     const raw = Object.fromEntries(formData);
     if (raw.productId === "") delete raw.productId;
     const data = itemSchema.parse(raw);
-    atomic(() => {
+    await atomic(async (tx) => {
       const values = {
         name: data.name,
         category: data.category,
@@ -93,11 +94,11 @@ export async function saveItem(formData: FormData): Promise<ActionResult> {
         remarks: data.remarks || null,
       };
       if (data.id) {
-        db.update(items).set(values).where(eq(items.id, data.id)).run();
-        writeAudit({ actorId: admin.id, action: "item.update", entity: "items", entityId: data.id, after: data });
+        await tx.update(items).set(values).where(eq(items.id, data.id));
+        await writeAudit(tx, { actorId: admin.id, action: "item.update", entity: "items", entityId: data.id, after: data });
       } else {
-        const row = db.insert(items).values(values).returning().get();
-        writeAudit({ actorId: admin.id, action: "item.create", entity: "items", entityId: row.id, after: data });
+        const row = (await tx.insert(items).values(values).returning())[0];
+        await writeAudit(tx, { actorId: admin.id, action: "item.create", entity: "items", entityId: row.id, after: data });
       }
     });
     revalidatePath("/masters");
@@ -119,13 +120,13 @@ export async function saveWarehouse(formData: FormData): Promise<ActionResult> {
   try {
     const admin = await requireAdmin();
     const data = warehouseSchema.parse(Object.fromEntries(formData));
-    atomic(() => {
+    await atomic(async (tx) => {
       if (data.id) {
-        db.update(warehouses).set({ name: data.name, location: data.location }).where(eq(warehouses.id, data.id)).run();
-        writeAudit({ actorId: admin.id, action: "warehouse.update", entity: "warehouses", entityId: data.id, after: data });
+        await tx.update(warehouses).set({ name: data.name, location: data.location }).where(eq(warehouses.id, data.id));
+        await writeAudit(tx, { actorId: admin.id, action: "warehouse.update", entity: "warehouses", entityId: data.id, after: data });
       } else {
-        const row = db.insert(warehouses).values({ name: data.name, location: data.location }).returning().get();
-        writeAudit({ actorId: admin.id, action: "warehouse.create", entity: "warehouses", entityId: row.id, after: data });
+        const row = (await tx.insert(warehouses).values({ name: data.name, location: data.location }).returning())[0];
+        await writeAudit(tx, { actorId: admin.id, action: "warehouse.create", entity: "warehouses", entityId: row.id, after: data });
       }
     });
     revalidatePath("/masters");
@@ -150,20 +151,21 @@ export async function saveWarehouseZone(formData: FormData): Promise<ActionResul
   try {
     const admin = await requireAdmin();
     const data = warehouseZoneSchema.parse(Object.fromEntries(formData));
-    atomic(() => {
+    await atomic(async (tx) => {
       if (data.id) {
-        db.update(warehouseZones)
+        await tx
+          .update(warehouseZones)
           .set({ name: data.name, code: data.code })
-          .where(eq(warehouseZones.id, data.id))
-          .run();
-        writeAudit({ actorId: admin.id, action: "warehouse_zone.update", entity: "warehouse_zones", entityId: data.id, after: data });
+          .where(eq(warehouseZones.id, data.id));
+        await writeAudit(tx, { actorId: admin.id, action: "warehouse_zone.update", entity: "warehouse_zones", entityId: data.id, after: data });
       } else {
-        const row = db
-          .insert(warehouseZones)
-          .values({ warehouseId: data.warehouseId, name: data.name, code: data.code })
-          .returning()
-          .get();
-        writeAudit({ actorId: admin.id, action: "warehouse_zone.create", entity: "warehouse_zones", entityId: row.id, after: data });
+        const row = (
+          await tx
+            .insert(warehouseZones)
+            .values({ warehouseId: data.warehouseId, name: data.name, code: data.code })
+            .returning()
+        )[0];
+        await writeAudit(tx, { actorId: admin.id, action: "warehouse_zone.create", entity: "warehouse_zones", entityId: row.id, after: data });
       }
     });
     revalidatePath("/masters");
@@ -189,7 +191,7 @@ export async function saveVendor(formData: FormData): Promise<ActionResult> {
   try {
     const admin = await requireAdmin();
     const data = vendorSchema.parse(Object.fromEntries(formData));
-    atomic(() => {
+    await atomic(async (tx) => {
       const values = {
         name: data.name,
         contactName: data.contactName,
@@ -199,11 +201,11 @@ export async function saveVendor(formData: FormData): Promise<ActionResult> {
         address: data.address,
       };
       if (data.id) {
-        db.update(vendors).set(values).where(eq(vendors.id, data.id)).run();
-        writeAudit({ actorId: admin.id, action: "vendor.update", entity: "vendors", entityId: data.id, after: data });
+        await tx.update(vendors).set(values).where(eq(vendors.id, data.id));
+        await writeAudit(tx, { actorId: admin.id, action: "vendor.update", entity: "vendors", entityId: data.id, after: data });
       } else {
-        const row = db.insert(vendors).values(values).returning().get();
-        writeAudit({ actorId: admin.id, action: "vendor.create", entity: "vendors", entityId: row.id, after: data });
+        const row = (await tx.insert(vendors).values(values).returning())[0];
+        await writeAudit(tx, { actorId: admin.id, action: "vendor.create", entity: "vendors", entityId: row.id, after: data });
       }
     });
     revalidatePath("/masters");
@@ -237,9 +239,10 @@ export async function saveUser(formData: FormData): Promise<ActionResult> {
     }
     const passwordHash = data.password && data.password.length >= 6 ? await hashPassword(data.password) : undefined;
 
-    atomic(() => {
+    await atomic(async (tx) => {
       if (data.id) {
-        db.update(users)
+        await tx
+          .update(users)
           .set({
             name: data.name,
             username: data.username,
@@ -247,16 +250,16 @@ export async function saveUser(formData: FormData): Promise<ActionResult> {
             active: data.active,
             ...(passwordHash ? { passwordHash } : {}),
           })
-          .where(eq(users.id, data.id))
-          .run();
-        writeAudit({ actorId: admin.id, action: "user.update", entity: "users", entityId: data.id });
+          .where(eq(users.id, data.id));
+        await writeAudit(tx, { actorId: admin.id, action: "user.update", entity: "users", entityId: data.id });
       } else {
-        const row = db
-          .insert(users)
-          .values({ name: data.name, username: data.username, role: data.role, active: data.active, passwordHash: passwordHash! })
-          .returning()
-          .get();
-        writeAudit({ actorId: admin.id, action: "user.create", entity: "users", entityId: row.id });
+        const row = (
+          await tx
+            .insert(users)
+            .values({ name: data.name, username: data.username, role: data.role, active: data.active, passwordHash: passwordHash! })
+            .returning()
+        )[0];
+        await writeAudit(tx, { actorId: admin.id, action: "user.create", entity: "users", entityId: row.id });
       }
     });
     revalidatePath("/masters");
@@ -290,27 +293,28 @@ export async function saveFormula(payload: {
   try {
     const admin = await requireAdmin();
     const data = formulaSchema.parse(payload);
-    atomic(() => {
+    await atomic(async (tx) => {
       let formulaId: number;
       if (data.id) {
-        db.update(formulas)
+        await tx
+          .update(formulas)
           .set({ name: data.name, productId: data.productId, outputQty: data.outputQty, outputUom: data.outputUom })
-          .where(eq(formulas.id, data.id))
-          .run();
-        db.delete(formulaLines).where(eq(formulaLines.formulaId, data.id)).run();
+          .where(eq(formulas.id, data.id));
+        await tx.delete(formulaLines).where(eq(formulaLines.formulaId, data.id));
         formulaId = data.id;
       } else {
-        const row = db
-          .insert(formulas)
-          .values({ name: data.name, productId: data.productId, outputQty: data.outputQty, outputUom: data.outputUom })
-          .returning()
-          .get();
+        const row = (
+          await tx
+            .insert(formulas)
+            .values({ name: data.name, productId: data.productId, outputQty: data.outputQty, outputUom: data.outputUom })
+            .returning()
+        )[0];
         formulaId = row.id;
       }
-      db.insert(formulaLines)
-        .values(data.lines.map((l) => ({ formulaId, itemId: l.itemId, qtyPerOutput: l.qtyPerOutput })))
-        .run();
-      writeAudit({
+      await tx
+        .insert(formulaLines)
+        .values(data.lines.map((l) => ({ formulaId, itemId: l.itemId, qtyPerOutput: l.qtyPerOutput })));
+      await writeAudit(tx, {
         actorId: admin.id,
         action: data.id ? "formula.update" : "formula.create",
         entity: "formulas",
@@ -351,35 +355,34 @@ export async function saveWorkflowTemplate(payload: {
   try {
     const admin = await requireAdmin();
     const data = templateSchema.parse(payload);
-    atomic(() => {
+    await atomic(async (tx) => {
       let templateId: number;
       if (data.id) {
-        db.update(workflowTemplates)
+        await tx
+          .update(workflowTemplates)
           .set({ name: data.name, productId: data.productId ?? null })
-          .where(eq(workflowTemplates.id, data.id))
-          .run();
-        db.delete(workflowTemplateStages).where(eq(workflowTemplateStages.templateId, data.id)).run();
+          .where(eq(workflowTemplates.id, data.id));
+        await tx.delete(workflowTemplateStages).where(eq(workflowTemplateStages.templateId, data.id));
         templateId = data.id;
       } else {
-        const row = db
-          .insert(workflowTemplates)
-          .values({ name: data.name, productId: data.productId ?? null })
-          .returning()
-          .get();
+        const row = (
+          await tx
+            .insert(workflowTemplates)
+            .values({ name: data.name, productId: data.productId ?? null })
+            .returning()
+        )[0];
         templateId = row.id;
       }
-      db.insert(workflowTemplateStages)
-        .values(
-          data.stages.map((s, i) => ({
-            templateId,
-            seq: i + 1,
-            name: s.name,
-            expectedDays: s.expectedDays ?? null,
-            requiresReadings: s.requiresReadings,
-          }))
-        )
-        .run();
-      writeAudit({
+      await tx.insert(workflowTemplateStages).values(
+        data.stages.map((s, i) => ({
+          templateId,
+          seq: i + 1,
+          name: s.name,
+          expectedDays: s.expectedDays ?? null,
+          requiresReadings: s.requiresReadings,
+        }))
+      );
+      await writeAudit(tx, {
         actorId: admin.id,
         action: data.id ? "workflow_template.update" : "workflow_template.create",
         entity: "workflow_templates",

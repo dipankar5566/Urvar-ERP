@@ -51,7 +51,7 @@ async function goodsReceipt(itemLabelPart, qty, supplier) {
 }
 
 await goodsReceipt("Cow Dung (ton)", 20, "Ghosh Dairy Farm");
-await goodsReceipt("Agricultural Waste (ton)", 8, "Local Farmers Co-op");
+await goodsReceipt("Agricultural Waste (tractor)", 8, "Local Farmers Co-op");
 await goodsReceipt("HDPE Bag 25kg (nos)", 1000, "Kolkata Packaging Co");
 await shot("inventory-after-receipts");
 console.log("✅ Goods receipts recorded");
@@ -137,6 +137,8 @@ console.log("✅ Dashboard and ledger reflect production");
 await page.goto(`${BASE}/production`);
 await page.click("button:has-text('New Order')");
 await page.waitForSelector("#po-qty");
+await page.selectOption("#po-product", { label: "Vermicompost" });
+await page.waitForFunction(() => document.querySelector("#po-formula")?.value !== "");
 await page.fill("#po-qty", "1000");
 await page.selectOption("#po-supervisor", { label: "Production Supervisor" });
 await page.click("button:has-text('Create Order')");

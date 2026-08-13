@@ -1,4 +1,4 @@
-// Kisanbandhu plot geometry, extracted from the surveyed site plan
+// Tantipara plot geometry, extracted from the surveyed site plan
 // (Kisanbandhu Vermicompost.dwg, drawing units = inches, converted to feet).
 // Coordinates are in feet; y increases northward (flip for SVG).
 //

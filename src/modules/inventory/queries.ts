@@ -12,7 +12,7 @@ import {
 } from "@/db/schema";
 
 // Total stock per item per warehouse (sums across lots/batches)
-export function getStockOverview() {
+export async function getStockOverview() {
   return db
     .select({
       itemId: items.id,
@@ -28,11 +28,10 @@ export function getStockOverview() {
     .innerJoin(items, eq(stockBalances.itemId, items.id))
     .innerJoin(warehouses, eq(stockBalances.warehouseId, warehouses.id))
     .groupBy(items.id, warehouses.id)
-    .having(sql`abs(sum(${stockBalances.qty})) > 1e-9`)
-    .all();
+    .having(sql`abs(sum(${stockBalances.qty})) > 1e-9`);
 }
 
-export function getRecentTransactions(limit = 200) {
+export async function getRecentTransactions(limit = 200) {
   return db
     .select({
       id: inventoryTransactions.id,
@@ -54,40 +53,44 @@ export function getRecentTransactions(limit = 200) {
     .leftJoin(batches, eq(inventoryTransactions.batchId, batches.id))
     .innerJoin(users, eq(inventoryTransactions.createdBy, users.id))
     .orderBy(desc(inventoryTransactions.id))
-    .limit(limit)
-    .all();
+    .limit(limit);
 }
 
 // Stock level over time per item: opening balance at the window start plus
 // daily net movement, for the Trends chart (which shows one item at a time —
 // per-item series, never summed across items with different units).
-export function getStockTrend(days = 60) {
+// Dates are truncated in UTC explicitly (AT TIME ZONE 'UTC') rather than
+// relying on the connection's session timezone, matching how SQLite's date()
+// on a Z-suffixed ISO string always did this implicitly.
+export async function getStockTrend(days = 60) {
   const start = new Date(Date.now() - (days - 1) * 86_400_000).toISOString().slice(0, 10);
 
-  const opening = db.all(
-    sql`SELECT t.item_id as itemId, i.name as itemName, i.uom as uom,
+  const openingResult = await db.execute(
+    sql`SELECT t.item_id as "itemId", i.name as "itemName", i.uom as "uom",
                sum(t.qty) as qty
         FROM inventory_transactions t JOIN items i ON i.id = t.item_id
-        WHERE date(t.created_at) < ${start}
-        GROUP BY t.item_id`
-  ) as { itemId: number; itemName: string; uom: string; qty: number }[];
+        WHERE (t.created_at AT TIME ZONE 'UTC')::date < ${start}::date
+        GROUP BY t.item_id, i.name, i.uom`
+  );
+  const opening = openingResult.rows as unknown as { itemId: number; itemName: string; uom: string; qty: number }[];
 
-  const daily = db.all(
-    sql`SELECT t.item_id as itemId, i.name as itemName, i.uom as uom,
-               date(t.created_at) as date, sum(t.qty) as qty
+  const dailyResult = await db.execute(
+    sql`SELECT t.item_id as "itemId", i.name as "itemName", i.uom as "uom",
+               (t.created_at AT TIME ZONE 'UTC')::date as date, sum(t.qty) as qty
         FROM inventory_transactions t JOIN items i ON i.id = t.item_id
-        WHERE date(t.created_at) >= ${start}
-        GROUP BY t.item_id, date(t.created_at)
-        ORDER BY date(t.created_at) ASC`
-  ) as { itemId: number; itemName: string; uom: string; date: string; qty: number }[];
+        WHERE (t.created_at AT TIME ZONE 'UTC')::date >= ${start}::date
+        GROUP BY t.item_id, i.name, i.uom, (t.created_at AT TIME ZONE 'UTC')::date
+        ORDER BY (t.created_at AT TIME ZONE 'UTC')::date ASC`
+  );
+  const daily = dailyResult.rows as unknown as { itemId: number; itemName: string; uom: string; date: string; qty: number }[];
 
   return { start, opening, daily };
 }
 
-export type StockTrend = ReturnType<typeof getStockTrend>;
+export type StockTrend = Awaited<ReturnType<typeof getStockTrend>>;
 
 // Lots with remaining stock for an item (FIFO order) — used by production issue
-export function getAvailableLots(itemId: number, warehouseId: number) {
+export async function getAvailableLots(itemId: number, warehouseId: number) {
   return db
     .select({
       lotId: lots.id,
@@ -100,8 +103,7 @@ export function getAvailableLots(itemId: number, warehouseId: number) {
     .where(
       sql`${stockBalances.itemId} = ${itemId} AND ${stockBalances.warehouseId} = ${warehouseId} AND ${stockBalances.qty} > 1e-9`
     )
-    .orderBy(lots.receivedDate, lots.id)
-    .all();
+    .orderBy(lots.receivedDate, lots.id);
 }
 
 // All batches with remaining stock, across every item/warehouse — used by
@@ -109,7 +111,7 @@ export function getAvailableLots(itemId: number, warehouseId: number) {
 // client-side to the currently selected item+warehouse; small enough scale
 // (one plant, dozens of live batches) that bulk-loading beats a round trip
 // per item selection, matching how items/warehouses are already loaded.
-export function getAvailableBatches() {
+export async function getAvailableBatches() {
   return db
     .select({
       batchId: batches.id,
@@ -122,15 +124,14 @@ export function getAvailableBatches() {
     .from(stockBalances)
     .innerJoin(batches, eq(stockBalances.batchId, batches.id))
     .where(sql`${stockBalances.qty} > 1e-9`)
-    .orderBy(batches.mfgDate, batches.id)
-    .all();
+    .orderBy(batches.mfgDate, batches.id);
 }
 
 // Batches still holding stock, with days-until-expiry (negative = already
 // expired). Split into expired / near-expiry for the dashboard card and the
 // Expiry tab; a batch expiring further out than `days` is omitted entirely.
-export function getExpiringBatches(days = 90) {
-  const rows = db
+export async function getExpiringBatches(days = 90) {
+  const rows = await db
     .select({
       batchId: batches.id,
       batchNo: batches.batchNo,
@@ -138,17 +139,14 @@ export function getExpiringBatches(days = 90) {
       expiryDate: batches.expiryDate,
       uom: batches.uom,
       qty: sql<number>`sum(${stockBalances.qty})`.as("qty"),
-      daysUntilExpiry: sql<number>`cast(julianday(${batches.expiryDate}) - julianday('now') as integer)`.as(
-        "daysUntilExpiry"
-      ),
+      daysUntilExpiry: sql<number>`(${batches.expiryDate}::date - current_date)`.as("daysUntilExpiry"),
     })
     .from(stockBalances)
     .innerJoin(batches, eq(stockBalances.batchId, batches.id))
     .innerJoin(products, eq(batches.productId, products.id))
-    .groupBy(batches.id)
+    .groupBy(batches.id, products.name)
     .having(sql`abs(sum(${stockBalances.qty})) > 1e-9`)
-    .orderBy(batches.expiryDate)
-    .all();
+    .orderBy(batches.expiryDate);
 
   const inWindow = rows.filter((r) => r.daysUntilExpiry <= days);
   return {
@@ -169,8 +167,8 @@ function ageBucket(days: number): AgingBucket {
 // Every lot and batch still holding stock, with age since received/produced.
 // Two separate queries (different source tables) rather than a SQL UNION —
 // the UI merges and sorts them by age for one combined table.
-export function getAgingStock() {
-  const lotRows = db
+export async function getAgingStock() {
+  const lotRows = await db
     .select({
       kind: sql<"lot">`'lot'`.as("kind"),
       id: lots.id,
@@ -179,18 +177,15 @@ export function getAgingStock() {
       qty: sql<number>`sum(${stockBalances.qty})`.as("qty"),
       uom: lots.uom,
       sinceDate: lots.receivedDate,
-      ageDays: sql<number>`cast(julianday('now') - julianday(${lots.receivedDate}) as integer)`.as(
-        "ageDays"
-      ),
+      ageDays: sql<number>`(current_date - ${lots.receivedDate}::date)`.as("ageDays"),
     })
     .from(stockBalances)
     .innerJoin(lots, eq(stockBalances.lotId, lots.id))
     .innerJoin(items, eq(lots.itemId, items.id))
-    .groupBy(lots.id)
-    .having(sql`abs(sum(${stockBalances.qty})) > 1e-9`)
-    .all();
+    .groupBy(lots.id, items.name)
+    .having(sql`abs(sum(${stockBalances.qty})) > 1e-9`);
 
-  const batchRows = db
+  const batchRows = await db
     .select({
       kind: sql<"batch">`'batch'`.as("kind"),
       id: batches.id,
@@ -199,24 +194,21 @@ export function getAgingStock() {
       qty: sql<number>`sum(${stockBalances.qty})`.as("qty"),
       uom: batches.uom,
       sinceDate: batches.mfgDate,
-      ageDays: sql<number>`cast(julianday('now') - julianday(${batches.mfgDate}) as integer)`.as(
-        "ageDays"
-      ),
+      ageDays: sql<number>`(current_date - ${batches.mfgDate}::date)`.as("ageDays"),
     })
     .from(stockBalances)
     .innerJoin(batches, eq(stockBalances.batchId, batches.id))
     .innerJoin(products, eq(batches.productId, products.id))
-    .groupBy(batches.id)
-    .having(sql`abs(sum(${stockBalances.qty})) > 1e-9`)
-    .all();
+    .groupBy(batches.id, products.name)
+    .having(sql`abs(sum(${stockBalances.qty})) > 1e-9`);
 
   return [...lotRows, ...batchRows]
     .map((r) => ({ ...r, bucket: ageBucket(r.ageDays) }))
     .sort((a, b) => b.ageDays - a.ageDays);
 }
 
-export type StockRow = ReturnType<typeof getStockOverview>[number];
-export type TransactionRow = ReturnType<typeof getRecentTransactions>[number];
-export type AvailableBatchRow = ReturnType<typeof getAvailableBatches>[number];
-export type ExpiringBatches = ReturnType<typeof getExpiringBatches>;
-export type AgingRow = ReturnType<typeof getAgingStock>[number];
+export type StockRow = Awaited<ReturnType<typeof getStockOverview>>[number];
+export type TransactionRow = Awaited<ReturnType<typeof getRecentTransactions>>[number];
+export type AvailableBatchRow = Awaited<ReturnType<typeof getAvailableBatches>>[number];
+export type ExpiringBatches = Awaited<ReturnType<typeof getExpiringBatches>>;
+export type AgingRow = Awaited<ReturnType<typeof getAgingStock>>[number];

@@ -17,6 +17,7 @@ import {
   Sun,
   ShieldCheck,
   Truck,
+  Inbox,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
@@ -27,6 +28,7 @@ import type { SessionUser } from "@/lib/session";
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/production", label: "Production", icon: Factory },
+  { href: "/production-requests", label: "Production Requests", icon: Inbox },
   { href: "/layout-map", label: "Site Layout", icon: Map },
   { href: "/quality", label: "Quality", icon: ShieldCheck },
   { href: "/batches", label: "Batches", icon: Layers },
@@ -48,7 +50,7 @@ export function AppShell({ user, children }: { user: SessionUser; children: Reac
         <Image src="/urvar-mark.png" alt="" width={28} height={29} className="h-7 w-auto shrink-0" />
         <div>
           <div className="text-sm font-semibold leading-none">Urvar ERP</div>
-          <div className="mt-0.5 text-xs text-muted-foreground">Kisanbandhu Plant</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">Tantipara Plant</div>
         </div>
       </div>
       <nav className="flex-1 space-y-1 px-2">

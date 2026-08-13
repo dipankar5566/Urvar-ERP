@@ -39,14 +39,14 @@ async function shot(page, name) {
   await page.waitForTimeout(800);
   await shot(page, "02-zone-created");
 
-  // ---- Step 1: Transfer 1 ton Cow Dung Kisanbandhu -> Machine Shed & Godown ----
+  // ---- Step 1: Transfer 1 ton Cow Dung Tantipara -> Machine Shed & Godown ----
   await page.goto(`${BASE}/inventory`);
   await page.waitForTimeout(300);
   await page.click("button:has-text('Transfer')");
   await page.waitForSelector("[role=dialog]");
   const trfDialog = page.locator("[role=dialog]");
   await trfDialog.locator("#trf-item").selectOption({ label: "Cow Dung (ton)" });
-  await trfDialog.locator("#trf-from").selectOption({ label: "Kisanbandhu Plant" });
+  await trfDialog.locator("#trf-from").selectOption({ label: "Tantipara Plant" });
   await trfDialog.locator("#trf-to").selectOption({ label: "Machine Shed & Godown" });
   await page.waitForTimeout(200);
   // to-zone select should now show Rack A as optional
@@ -66,7 +66,7 @@ async function shot(page, name) {
   const trf2 = page.locator("[role=dialog]");
   await trf2.locator("#trf-item").selectOption({ label: "Vermicompost (ton)" });
   await page.waitForTimeout(200);
-  await trf2.locator("#trf-from").selectOption({ label: "Kisanbandhu Plant" });
+  await trf2.locator("#trf-from").selectOption({ label: "Tantipara Plant" });
   await trf2.locator("#trf-to").selectOption({ label: "Machine Shed & Godown" });
   await page.waitForTimeout(200);
   const batchOptions = await trf2.locator("#trf-batch option").allTextContents();
@@ -113,8 +113,8 @@ async function shot(page, name) {
   await page.waitForSelector("[role=dialog]");
   const trf3 = page.locator("[role=dialog]");
   await trf3.locator("#trf-item").selectOption({ label: "Cow Dung (ton)" });
-  await trf3.locator("#trf-from").selectOption({ label: "Kisanbandhu Plant" });
-  await trf3.locator("#trf-to").selectOption({ label: "Kisanbandhu Plant" });
+  await trf3.locator("#trf-from").selectOption({ label: "Tantipara Plant" });
+  await trf3.locator("#trf-to").selectOption({ label: "Tantipara Plant" });
   await trf3.locator("#trf-qty").fill("1");
   await shot(page, "09-same-warehouse-transfer-dialog");
   await trf3.locator("button[type=submit]:has-text('Transfer')").click();
@@ -166,17 +166,17 @@ async function shot(page, name) {
   await page.waitForTimeout(1000);
   await shot(page, "14-gr-with-zone-done");
 
-  // GR without zone (Kisanbandhu Plant has no zones set up)
+  // GR without zone (Tantipara Plant has no zones set up)
   await page.goto(`${BASE}/inventory`);
   await page.click("button:has-text('Goods Receipt')");
   await page.waitForSelector("[role=dialog]");
   const grDialog2 = page.locator("[role=dialog]");
   await grDialog2.locator("#gr-item").selectOption({ label: "Rock Phosphate (ton)" });
   await grDialog2.locator("#gr-qty").fill("2");
-  await grDialog2.locator("#gr-wh").selectOption({ label: "Kisanbandhu Plant" });
+  await grDialog2.locator("#gr-wh").selectOption({ label: "Tantipara Plant" });
   await page.waitForTimeout(200);
   const zoneSelectVisible2 = await grDialog2.locator("#gr-zone").isVisible().catch(() => false);
-  console.log("GR zone select visible for Kisanbandhu Plant (no zones):", zoneSelectVisible2);
+  console.log("GR zone select visible for Tantipara Plant (no zones):", zoneSelectVisible2);
   await grDialog2.locator("#gr-supplier").fill("Another Supplier");
   await grDialog2.locator("button[type=submit]:has-text('Receive')").click();
   await page.waitForTimeout(1000);

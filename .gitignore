@@ -45,3 +45,7 @@ next-env.d.ts
 
 # E2E artifacts
 /e2e-shots/
+
+# local DB snapshots (contain business data) and dev logs
+/backups/
+dev-server.log

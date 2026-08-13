@@ -16,15 +16,16 @@ import { InventoryView } from "./inventory-view";
 export default async function InventoryPage() {
   const user = await requireUser();
 
-  const stock = getStockOverview();
-  const transactions = getRecentTransactions();
-  const itemRows = db.select().from(items).orderBy(asc(items.name)).all();
-  const warehouseRows = db.select().from(warehouses).orderBy(asc(warehouses.name)).all();
-  const zoneRows = db.select().from(warehouseZones).orderBy(asc(warehouseZones.name)).all();
-  const availableBatches = getAvailableBatches();
-  const expiring = getExpiringBatches();
-  const aging = getAgingStock();
-  const openPOLines = getOpenPOLines();
+  const stock = await getStockOverview();
+  const transactions = await getRecentTransactions();
+  const itemRows = await db.select().from(items).orderBy(asc(items.name));
+  const warehouseRows = await db.select().from(warehouses).orderBy(asc(warehouses.name));
+  const zoneRows = await db.select().from(warehouseZones).orderBy(asc(warehouseZones.name));
+  const availableBatches = await getAvailableBatches();
+  const expiring = await getExpiringBatches();
+  const aging = await getAgingStock();
+  const openPOLines = await getOpenPOLines();
+  const stockTrend = await getStockTrend();
 
   return (
     <InventoryView
@@ -38,7 +39,7 @@ export default async function InventoryPage() {
       expiring={expiring}
       aging={aging}
       openPOLines={openPOLines}
-      stockTrend={getStockTrend()}
+      stockTrend={stockTrend}
     />
   );
 }

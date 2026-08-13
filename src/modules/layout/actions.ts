@@ -31,19 +31,15 @@ export async function assignBeds(orderId: number, bedIds: number[]): Promise<Act
   try {
     const user = await requireUser();
 
-    atomic(() => {
-      const order = db
-        .select()
-        .from(productionOrders)
-        .where(eq(productionOrders.id, orderId))
-        .get();
+    await atomic(async (tx) => {
+      const order = (await tx.select().from(productionOrders).where(eq(productionOrders.id, orderId)))[0];
       if (!order) throw new Error("Order not found");
       if (order.status === "completed" || order.status === "cancelled") {
         throw new Error(`Cannot assign beds to a ${order.status} order`);
       }
 
       if (bedIds.length > 0) {
-        const conflicts = db
+        const conflicts = await tx
           .select({ bedId: orderBeds.bedId, orderNo: productionOrders.orderNo })
           .from(orderBeds)
           .innerJoin(productionOrders, eq(orderBeds.orderId, productionOrders.id))
@@ -53,14 +49,12 @@ export async function assignBeds(orderId: number, bedIds: number[]): Promise<Act
               eq(productionOrders.status, "in_progress"),
               ne(productionOrders.id, orderId)
             )
-          )
-          .all();
+          );
         if (conflicts.length > 0) {
-          const taken = db
+          const taken = await tx
             .select({ code: beds.code })
             .from(beds)
-            .where(inArray(beds.id, conflicts.map((c) => c.bedId)))
-            .all();
+            .where(inArray(beds.id, conflicts.map((c) => c.bedId)));
           throw new Error(
             `Bed(s) ${taken.map((t) => t.code).join(", ")} already occupied by ${conflicts[0].orderNo}`
           );
@@ -70,28 +64,21 @@ export async function assignBeds(orderId: number, bedIds: number[]): Promise<Act
       // Diff against the current assignment rather than delete+reinsert
       // everything, so beds that stay assigned keep their original
       // assignedAt (and therefore an accurate "days in bed" on the map).
-      const current = db
-        .select({ bedId: orderBeds.bedId })
-        .from(orderBeds)
-        .where(eq(orderBeds.orderId, orderId))
-        .all()
-        .map((r) => r.bedId);
+      const current = (
+        await tx.select({ bedId: orderBeds.bedId }).from(orderBeds).where(eq(orderBeds.orderId, orderId))
+      ).map((r) => r.bedId);
 
       const toRemove = current.filter((id) => !bedIds.includes(id));
       const toAdd = bedIds.filter((id) => !current.includes(id));
 
       if (toRemove.length > 0) {
-        db.delete(orderBeds)
-          .where(and(eq(orderBeds.orderId, orderId), inArray(orderBeds.bedId, toRemove)))
-          .run();
+        await tx.delete(orderBeds).where(and(eq(orderBeds.orderId, orderId), inArray(orderBeds.bedId, toRemove)));
       }
       if (toAdd.length > 0) {
-        db.insert(orderBeds)
-          .values(toAdd.map((bedId) => ({ orderId, bedId })))
-          .run();
+        await tx.insert(orderBeds).values(toAdd.map((bedId) => ({ orderId, bedId })));
       }
 
-      writeAudit({
+      await writeAudit(tx, {
         actorId: user.id,
         action: "production_order.assign_beds",
         entity: "order_beds",
@@ -137,37 +124,39 @@ export async function logBedMaintenance(formData: FormData): Promise<ActionResul
       if (!data.qtyApplied || data.qtyApplied <= 0) return { ok: false, error: "Enter a quantity applied" };
     }
 
-    atomic(() => {
+    await atomic(async (tx) => {
       // Same "occupied" definition getBedLayout() uses — a maintenance log
       // can only attach to a bed the map is actually showing as occupied.
-      const ob = db
-        .select({ id: orderBeds.id, warehouseId: productionOrders.warehouseId })
-        .from(orderBeds)
-        .innerJoin(productionOrders, eq(orderBeds.orderId, productionOrders.id))
-        .where(and(eq(orderBeds.bedId, data.bedId), eq(productionOrders.status, "in_progress")))
-        .get();
+      const ob = (
+        await tx
+          .select({ id: orderBeds.id, warehouseId: productionOrders.warehouseId })
+          .from(orderBeds)
+          .innerJoin(productionOrders, eq(orderBeds.orderId, productionOrders.id))
+          .where(and(eq(orderBeds.bedId, data.bedId), eq(productionOrders.status, "in_progress")))
+      )[0];
       if (!ob) throw new Error("Bed is not currently occupied by an in-progress order");
 
-      const log = db
-        .insert(bedMaintenanceLog)
-        .values({
-          orderBedId: ob.id,
-          taskType: data.taskType,
-          itemId: data.taskType === "bio_enzyme" ? data.itemId : null,
-          qtyApplied: data.taskType === "bio_enzyme" ? data.qtyApplied : null,
-          notes: data.notes,
-          performedBy: user.id,
-        })
-        .returning()
-        .get();
+      const log = (
+        await tx
+          .insert(bedMaintenanceLog)
+          .values({
+            orderBedId: ob.id,
+            taskType: data.taskType,
+            itemId: data.taskType === "bio_enzyme" ? data.itemId : null,
+            qtyApplied: data.taskType === "bio_enzyme" ? data.qtyApplied : null,
+            notes: data.notes,
+            performedBy: user.id,
+          })
+          .returning()
+      )[0];
 
       if (data.taskType === "bio_enzyme") {
-        const item = db.select().from(items).where(eq(items.id, data.itemId!)).get();
+        const item = (await tx.select().from(items).where(eq(items.id, data.itemId!)))[0];
         if (!item) throw new Error("Item not found");
 
-        const picks = pickFifoLots(data.itemId!, ob.warehouseId, data.qtyApplied!);
+        const picks = await pickFifoLots(tx, data.itemId!, ob.warehouseId, data.qtyApplied!);
         for (const pick of picks) {
-          postTransaction({
+          await postTransaction(tx, {
             type: "issue_to_bed_maintenance",
             itemId: data.itemId!,
             warehouseId: ob.warehouseId,
@@ -182,7 +171,7 @@ export async function logBedMaintenance(formData: FormData): Promise<ActionResul
         }
       }
 
-      writeAudit({
+      await writeAudit(tx, {
         actorId: user.id,
         action: "bed.log_maintenance",
         entity: "bed_maintenance_log",
@@ -264,8 +253,8 @@ export async function saveLayoutEdits(payload: SaveLayoutPayload): Promise<Actio
     const user = await requireAdmin();
     const data = saveLayoutSchema.parse(payload);
 
-    atomic(() => {
-      if (computeLayoutVersion() !== data.expectedVersion) {
+    await atomic(async (tx) => {
+      if ((await computeLayoutVersion(tx)) !== data.expectedVersion) {
         throw new Error("The layout was changed by someone else while you were editing — reload and reapply your changes");
       }
 
@@ -283,11 +272,12 @@ export async function saveLayoutEdits(payload: SaveLayoutPayload): Promise<Actio
 
       // --- Zone upserts (first, so new beds may target new zones) ----------
       for (const zn of data.zones) {
-        const clash = db
-          .select({ id: zones.id })
-          .from(zones)
-          .where(zn.id ? and(eq(zones.code, zn.code), ne(zones.id, zn.id)) : eq(zones.code, zn.code))
-          .get();
+        const clash = (
+          await tx
+            .select({ id: zones.id })
+            .from(zones)
+            .where(zn.id ? and(eq(zones.code, zn.code), ne(zones.id, zn.id)) : eq(zones.code, zn.code))
+        )[0];
         if (clash) throw new Error(`Zone code ${zn.code} is already in use`);
         const values = {
           code: zn.code,
@@ -297,45 +287,41 @@ export async function saveLayoutEdits(payload: SaveLayoutPayload): Promise<Actio
           labelY: zn.labelY,
         };
         if (zn.id) {
-          const existing = db.select().from(zones).where(eq(zones.id, zn.id)).get();
+          const existing = (await tx.select().from(zones).where(eq(zones.id, zn.id)))[0];
           if (!existing || !existing.active) throw new Error(`Zone ${zn.code}: not found`);
-          db.update(zones).set(values).where(eq(zones.id, zn.id)).run();
+          await tx.update(zones).set(values).where(eq(zones.id, zn.id));
         } else {
-          db.insert(zones).values(values).run();
+          await tx.insert(zones).values(values);
         }
       }
 
       // --- Boundary / strip reshapes ----------------------------------------
       for (const fs of data.featureShapes) {
-        const existing = db.select().from(siteFeatures).where(eq(siteFeatures.id, fs.id)).get();
+        const existing = (await tx.select().from(siteFeatures).where(eq(siteFeatures.id, fs.id)))[0];
         if (!existing || (existing.kind !== "boundary" && existing.kind !== "strip")) {
           throw new Error("Only the plot boundary and access strip can be reshaped here");
         }
-        db.update(siteFeatures)
-          .set({ polygon: JSON.stringify(fs.polygon) })
-          .where(eq(siteFeatures.id, fs.id))
-          .run();
+        await tx.update(siteFeatures).set({ polygon: JSON.stringify(fs.polygon) }).where(eq(siteFeatures.id, fs.id));
       }
 
       // --- Retire beds (never delete: history must survive) ---------------
       if (data.retireBedIds.length > 0) {
-        const occupied = db
+        const occupied = await tx
           .select({ bedId: orderBeds.bedId, code: beds.code, orderNo: productionOrders.orderNo })
           .from(orderBeds)
           .innerJoin(productionOrders, eq(orderBeds.orderId, productionOrders.id))
           .innerJoin(beds, eq(orderBeds.bedId, beds.id))
-          .where(and(inArray(orderBeds.bedId, data.retireBedIds), eq(productionOrders.status, "in_progress")))
-          .all();
+          .where(and(inArray(orderBeds.bedId, data.retireBedIds), eq(productionOrders.status, "in_progress")));
         if (occupied.length > 0) {
           throw new Error(
             `Cannot retire occupied bed(s): ${occupied.map((o) => `${o.code} (${o.orderNo})`).join(", ")}`
           );
         }
-        db.update(beds).set({ active: false }).where(inArray(beds.id, data.retireBedIds)).run();
+        await tx.update(beds).set({ active: false }).where(inArray(beds.id, data.retireBedIds));
       }
 
       // --- Bed upserts -----------------------------------------------------
-      const zoneRows = db.select().from(zones).where(eq(zones.active, true)).all();
+      const zoneRows = await tx.select().from(zones).where(eq(zones.active, true));
       const zoneIds = new Set(zoneRows.map((zn) => zn.id));
       for (const b of data.beds) {
         if (!zoneIds.has(b.zoneId)) throw new Error(`Bed ${b.code}: zone not found`);
@@ -344,63 +330,61 @@ export async function saveLayoutEdits(payload: SaveLayoutPayload): Promise<Actio
         const lengthFt = Number(segmentLength(b).toFixed(2));
         if (lengthFt < 2) throw new Error(`Bed ${b.code}: too short (${lengthFt}ft)`);
 
-        const clash = db
-          .select({ id: beds.id })
-          .from(beds)
-          .where(b.id ? and(eq(beds.code, b.code), ne(beds.id, b.id)) : eq(beds.code, b.code))
-          .get();
+        const clash = (
+          await tx
+            .select({ id: beds.id })
+            .from(beds)
+            .where(b.id ? and(eq(beds.code, b.code), ne(beds.id, b.id)) : eq(beds.code, b.code))
+        )[0];
         if (clash) throw new Error(`Bed code ${b.code} is already in use`);
 
         if (b.id) {
-          const existing = db.select().from(beds).where(eq(beds.id, b.id)).get();
+          const existing = (await tx.select().from(beds).where(eq(beds.id, b.id)))[0];
           if (!existing || !existing.active) throw new Error(`Bed ${b.code}: not found or retired`);
-          db.update(beds)
+          await tx
+            .update(beds)
             .set({ code: b.code, zoneId: b.zoneId, x1: b.x1, y1: b.y1, x2: b.x2, y2: b.y2, widthFt: b.widthFt, lengthFt })
-            .where(eq(beds.id, b.id))
-            .run();
+            .where(eq(beds.id, b.id));
         } else {
-          db.insert(beds)
-            .values({ code: b.code, zoneId: b.zoneId, x1: b.x1, y1: b.y1, x2: b.x2, y2: b.y2, widthFt: b.widthFt, lengthFt })
-            .run();
+          await tx
+            .insert(beds)
+            .values({ code: b.code, zoneId: b.zoneId, x1: b.x1, y1: b.y1, x2: b.x2, y2: b.y2, widthFt: b.widthFt, lengthFt });
         }
       }
 
       // --- Structure upserts -----------------------------------------------
       for (const s of data.structures) {
         if (s.warehouseId != null) {
-          const wh = db.select({ id: warehouses.id }).from(warehouses).where(eq(warehouses.id, s.warehouseId)).get();
+          const wh = (await tx.select({ id: warehouses.id }).from(warehouses).where(eq(warehouses.id, s.warehouseId)))[0];
           if (!wh) throw new Error(`Structure ${s.label}: warehouse not found`);
         }
         const polygon = JSON.stringify(s.polygon);
         if (s.id) {
-          const existing = db.select().from(siteFeatures).where(eq(siteFeatures.id, s.id)).get();
+          const existing = (await tx.select().from(siteFeatures).where(eq(siteFeatures.id, s.id)))[0];
           if (!existing || existing.kind !== "structure" || !existing.active) {
             throw new Error(`Structure ${s.label}: not found or not editable`);
           }
-          db.update(siteFeatures)
+          await tx
+            .update(siteFeatures)
             .set({ label: s.label, structureType: s.structureType, warehouseId: s.warehouseId, polygon })
-            .where(eq(siteFeatures.id, s.id))
-            .run();
+            .where(eq(siteFeatures.id, s.id));
         } else {
-          db.insert(siteFeatures)
-            .values({ kind: "structure", structureType: s.structureType, label: s.label, warehouseId: s.warehouseId, polygon })
-            .run();
+          await tx
+            .insert(siteFeatures)
+            .values({ kind: "structure", structureType: s.structureType, label: s.label, warehouseId: s.warehouseId, polygon });
         }
       }
 
       // --- Retire structures -----------------------------------------------
       if (data.retireStructureIds.length > 0) {
-        const rows = db.select().from(siteFeatures).where(inArray(siteFeatures.id, data.retireStructureIds)).all();
+        const rows = await tx.select().from(siteFeatures).where(inArray(siteFeatures.id, data.retireStructureIds));
         if (rows.some((r) => r.kind !== "structure")) {
           throw new Error("Only structures can be retired from the editor");
         }
-        db.update(siteFeatures)
-          .set({ active: false })
-          .where(inArray(siteFeatures.id, data.retireStructureIds))
-          .run();
+        await tx.update(siteFeatures).set({ active: false }).where(inArray(siteFeatures.id, data.retireStructureIds));
       }
 
-      writeAudit({
+      await writeAudit(tx, {
         actorId: user.id,
         action: "layout.save_edits",
         entity: "site_layout",

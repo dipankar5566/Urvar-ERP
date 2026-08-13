@@ -14,7 +14,7 @@ import {
   stockBalances,
 } from "@/db/schema";
 
-export function getBatches() {
+export async function getBatches() {
   return db
     .select({
       id: batches.id,
@@ -34,40 +34,40 @@ export function getBatches() {
     .innerJoin(products, eq(batches.productId, products.id))
     .innerJoin(productionOrders, eq(batches.orderId, productionOrders.id))
     .innerJoin(warehouses, eq(batches.warehouseId, warehouses.id))
-    .orderBy(desc(batches.id))
-    .all();
+    .orderBy(desc(batches.id));
 }
 
-export function getBatchDetail(batchId: number) {
-  const batch = db
-    .select({
-      id: batches.id,
-      batchNo: batches.batchNo,
-      mfgDate: batches.mfgDate,
-      expiryDate: batches.expiryDate,
-      qtyProduced: batches.qtyProduced,
-      expectedQty: batches.expectedQty,
-      uom: batches.uom,
-      yieldPct: batches.yieldPct,
-      qcStatus: batches.qcStatus,
-      dispatchStatus: batches.dispatchStatus,
-      createdAt: batches.createdAt,
-      orderId: batches.orderId,
-      laborCost: batches.laborCost,
-      overheadCost: batches.overheadCost,
-      productName: products.name,
-      orderNo: productionOrders.orderNo,
-      warehouseName: warehouses.name,
-    })
-    .from(batches)
-    .innerJoin(products, eq(batches.productId, products.id))
-    .innerJoin(productionOrders, eq(batches.orderId, productionOrders.id))
-    .innerJoin(warehouses, eq(batches.warehouseId, warehouses.id))
-    .where(eq(batches.id, batchId))
-    .get();
+export async function getBatchDetail(batchId: number) {
+  const batch = (
+    await db
+      .select({
+        id: batches.id,
+        batchNo: batches.batchNo,
+        mfgDate: batches.mfgDate,
+        expiryDate: batches.expiryDate,
+        qtyProduced: batches.qtyProduced,
+        expectedQty: batches.expectedQty,
+        uom: batches.uom,
+        yieldPct: batches.yieldPct,
+        qcStatus: batches.qcStatus,
+        dispatchStatus: batches.dispatchStatus,
+        createdAt: batches.createdAt,
+        orderId: batches.orderId,
+        laborCost: batches.laborCost,
+        overheadCost: batches.overheadCost,
+        productName: products.name,
+        orderNo: productionOrders.orderNo,
+        warehouseName: warehouses.name,
+      })
+      .from(batches)
+      .innerJoin(products, eq(batches.productId, products.id))
+      .innerJoin(productionOrders, eq(batches.orderId, productionOrders.id))
+      .innerJoin(warehouses, eq(batches.warehouseId, warehouses.id))
+      .where(eq(batches.id, batchId))
+  )[0];
   if (!batch) return null;
 
-  const inputs = db
+  const inputs = await db
     .select({
       id: batchInputs.id,
       qtyConsumed: batchInputs.qtyConsumed,
@@ -84,8 +84,7 @@ export function getBatchDetail(batchId: number) {
     .from(batchInputs)
     .innerJoin(items, eq(batchInputs.itemId, items.id))
     .innerJoin(lots, eq(batchInputs.lotId, lots.id))
-    .where(eq(batchInputs.batchId, batchId))
-    .all();
+    .where(eq(batchInputs.batchId, batchId));
 
   // Material cost per input line (null rate → line cost unknown, excluded
   // from the total rather than treated as zero) plus labor/overhead — see
@@ -98,14 +97,9 @@ export function getBatchDetail(batchId: number) {
   const totalCost = materialCost + (batch.laborCost ?? 0) + (batch.overheadCost ?? 0);
   const costPerUnit = batch.qtyProduced > 0 ? totalCost / batch.qtyProduced : null;
 
-  const stages = db
-    .select()
-    .from(orderStages)
-    .where(eq(orderStages.orderId, batch.orderId))
-    .orderBy(asc(orderStages.seq))
-    .all();
+  const stages = await db.select().from(orderStages).where(eq(orderStages.orderId, batch.orderId)).orderBy(asc(orderStages.seq));
 
-  const readings = db
+  const readings = await db
     .select({
       id: stageReadings.id,
       orderStageId: stageReadings.orderStageId,
@@ -121,14 +115,14 @@ export function getBatchDetail(batchId: number) {
     .where(
       sql`${stageReadings.orderStageId} IN (SELECT id FROM order_stages WHERE order_id = ${batch.orderId})`
     )
-    .orderBy(asc(stageReadings.id))
-    .all();
+    .orderBy(asc(stageReadings.id));
 
-  const currentStock = db
-    .select({ qty: sql<number>`coalesce(sum(${stockBalances.qty}), 0)` })
-    .from(stockBalances)
-    .where(eq(stockBalances.batchId, batchId))
-    .get();
+  const currentStock = (
+    await db
+      .select({ qty: sql<number>`coalesce(sum(${stockBalances.qty}), 0)` })
+      .from(stockBalances)
+      .where(eq(stockBalances.batchId, batchId))
+  )[0];
 
   return {
     batch,
@@ -144,8 +138,8 @@ export function getBatchDetail(batchId: number) {
 // Kept per-product downstream (the chart filters to one product at a time) —
 // ₹/ton and ₹/litre don't belong on one axis. costPartial marks batches with
 // at least one unknown-rate input: their cost understates the real number.
-export function getBatchCostYieldSeries(limit = 30) {
-  const rows = db
+export async function getBatchCostYieldSeries(limit = 30) {
+  const rows = await db
     .select({
       id: batches.id,
       batchNo: batches.batchNo,
@@ -161,15 +155,14 @@ export function getBatchCostYieldSeries(limit = 30) {
         SELECT sum(bi.qty_consumed * l.rate) FROM batch_inputs bi
         JOIN lots l ON l.id = bi.lot_id
         WHERE bi.batch_id = ${batches.id} AND l.rate IS NOT NULL)`,
-      costPartial: sql<number>`EXISTS(
+      costPartial: sql<boolean>`EXISTS(
         SELECT 1 FROM batch_inputs bi JOIN lots l ON l.id = bi.lot_id
         WHERE bi.batch_id = ${batches.id} AND l.rate IS NULL)`,
     })
     .from(batches)
     .innerJoin(products, eq(batches.productId, products.id))
     .orderBy(desc(batches.id))
-    .limit(limit)
-    .all();
+    .limit(limit);
 
   return rows
     .map((r) => {
@@ -183,7 +176,7 @@ export function getBatchCostYieldSeries(limit = 30) {
     .reverse(); // oldest → newest for the time axis
 }
 
-export type BatchCostYieldRow = ReturnType<typeof getBatchCostYieldSeries>[number];
+export type BatchCostYieldRow = Awaited<ReturnType<typeof getBatchCostYieldSeries>>[number];
 
-export type BatchRow = ReturnType<typeof getBatches>[number];
-export type BatchDetail = NonNullable<ReturnType<typeof getBatchDetail>>;
+export type BatchRow = Awaited<ReturnType<typeof getBatches>>[number];
+export type BatchDetail = NonNullable<Awaited<ReturnType<typeof getBatchDetail>>>;

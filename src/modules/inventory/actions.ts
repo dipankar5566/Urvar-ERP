@@ -44,7 +44,7 @@ export async function createGoodsReceipt(formData: FormData): Promise<ActionResu
     }
     const data = receiptSchema.parse(raw);
 
-    const item = db.select().from(items).where(eq(items.id, data.itemId)).get();
+    const item = (await db.select().from(items).where(eq(items.id, data.itemId)))[0];
     if (!item) return { ok: false, error: "Item not found" };
 
     let poLine: typeof purchaseOrderLines.$inferSelect | undefined;
@@ -52,12 +52,12 @@ export async function createGoodsReceipt(formData: FormData): Promise<ActionResu
     let vendorId = data.vendorId;
 
     if (data.poLineId) {
-      poLine = db.select().from(purchaseOrderLines).where(eq(purchaseOrderLines.id, data.poLineId)).get();
+      poLine = (await db.select().from(purchaseOrderLines).where(eq(purchaseOrderLines.id, data.poLineId)))[0];
       if (!poLine) return { ok: false, error: "Purchase order line not found" };
       if (poLine.itemId !== data.itemId) {
         return { ok: false, error: "Selected item does not match the purchase order line" };
       }
-      po = db.select().from(purchaseOrders).where(eq(purchaseOrders.id, poLine.poId)).get();
+      po = (await db.select().from(purchaseOrders).where(eq(purchaseOrders.id, poLine.poId)))[0];
       if (!po) return { ok: false, error: "Purchase order not found" };
       if (po.status !== "approved" && po.status !== "partially_received") {
         return {
@@ -71,7 +71,7 @@ export async function createGoodsReceipt(formData: FormData): Promise<ActionResu
     let vendor: typeof vendors.$inferSelect | undefined;
     let supplierName = data.supplierName;
     if (vendorId) {
-      vendor = db.select().from(vendors).where(eq(vendors.id, vendorId)).get();
+      vendor = (await db.select().from(vendors).where(eq(vendors.id, vendorId)))[0];
       if (!vendor) return { ok: false, error: "Vendor not found" };
       supplierName = vendor.name;
     }
@@ -79,32 +79,33 @@ export async function createGoodsReceipt(formData: FormData): Promise<ActionResu
       return { ok: false, error: "Supplier is required" };
     }
 
-    atomic(() => {
-      const lotNo = nextDocNumber("LOT");
-      const lot = db
-        .insert(lots)
-        .values({
-          lotNo,
-          itemId: data.itemId,
-          supplierName,
-          vendorId: vendor?.id,
-          poId: po?.id,
-          poLineId: poLine?.id,
-          receivedQty: data.qty,
-          uom: item.uom,
-          receivedDate: data.receivedDate,
-          vehicleNo: data.vehicleNo,
-          remarks: data.remarks,
-          // PO-linked: always the PO's own rate (authoritative, not
-          // re-enterable here). Ad-hoc: whatever rate was entered, if any —
-          // left null if the field was skipped, not defaulted to zero.
-          rate: poLine ? poLine.rate : data.rate,
-          createdBy: user.id,
-        })
-        .returning()
-        .get();
+    await atomic(async (tx) => {
+      const lotNo = await nextDocNumber(tx, "LOT");
+      const lot = (
+        await tx
+          .insert(lots)
+          .values({
+            lotNo,
+            itemId: data.itemId,
+            supplierName,
+            vendorId: vendor?.id,
+            poId: po?.id,
+            poLineId: poLine?.id,
+            receivedQty: data.qty,
+            uom: item.uom,
+            receivedDate: data.receivedDate,
+            vehicleNo: data.vehicleNo,
+            remarks: data.remarks,
+            // PO-linked: always the PO's own rate (authoritative, not
+            // re-enterable here). Ad-hoc: whatever rate was entered, if any —
+            // left null if the field was skipped, not defaulted to zero.
+            rate: poLine ? poLine.rate : data.rate,
+            createdBy: user.id,
+          })
+          .returning()
+      )[0];
 
-      postTransaction({
+      await postTransaction(tx, {
         type: "goods_receipt",
         itemId: data.itemId,
         warehouseId: data.warehouseId,
@@ -120,26 +121,20 @@ export async function createGoodsReceipt(formData: FormData): Promise<ActionResu
       // Fold the receipt into the PO's fulfillment tally and recompute status.
       if (poLine && po) {
         const newReceived = poLine.receivedQty + data.qty;
-        db.update(purchaseOrderLines)
-          .set({ receivedQty: newReceived })
-          .where(eq(purchaseOrderLines.id, poLine.id))
-          .run();
+        await tx.update(purchaseOrderLines).set({ receivedQty: newReceived }).where(eq(purchaseOrderLines.id, poLine.id));
 
-        const siblingLines = db
-          .select()
-          .from(purchaseOrderLines)
-          .where(eq(purchaseOrderLines.poId, poLine.poId))
-          .all()
-          .map((l) => (l.id === poLine!.id ? { ...l, receivedQty: newReceived } : l));
+        const siblingLines = (
+          await tx.select().from(purchaseOrderLines).where(eq(purchaseOrderLines.poId, poLine.poId))
+        ).map((l) => (l.id === poLine!.id ? { ...l, receivedQty: newReceived } : l));
         const allReceived = siblingLines.every((l) => l.receivedQty >= l.qty - 1e-9);
         const anyReceived = siblingLines.some((l) => l.receivedQty > 1e-9);
         const nextStatus = allReceived ? "closed" : anyReceived ? "partially_received" : "approved";
         if (nextStatus !== po.status) {
-          db.update(purchaseOrders).set({ status: nextStatus }).where(eq(purchaseOrders.id, poLine.poId)).run();
+          await tx.update(purchaseOrders).set({ status: nextStatus }).where(eq(purchaseOrders.id, poLine.poId));
         }
       }
 
-      writeAudit({
+      await writeAudit(tx, {
         actorId: user.id,
         action: "inventory.goods_receipt",
         entity: "lots",
@@ -177,7 +172,7 @@ export async function createAdjustment(formData: FormData): Promise<ActionResult
     if (raw.zoneId === "") delete raw.zoneId;
     const data = adjustmentSchema.parse(raw);
 
-    const item = db.select().from(items).where(eq(items.id, data.itemId)).get();
+    const item = (await db.select().from(items).where(eq(items.id, data.itemId)))[0];
     if (!item) return { ok: false, error: "Item not found" };
 
     // Finished goods are batch-tracked: require picking a batch, and block
@@ -188,7 +183,7 @@ export async function createAdjustment(formData: FormData): Promise<ActionResult
       if (!data.batchId) {
         return { ok: false, error: "Select which batch this adjustment applies to" };
       }
-      const batch = db.select().from(batches).where(eq(batches.id, data.batchId)).get();
+      const batch = (await db.select().from(batches).where(eq(batches.id, data.batchId)))[0];
       if (!batch) return { ok: false, error: "Batch not found" };
       if (batch.productId !== item.productId) {
         return { ok: false, error: "That batch does not belong to the selected item" };
@@ -201,8 +196,8 @@ export async function createAdjustment(formData: FormData): Promise<ActionResult
       }
     }
 
-    atomic(() => {
-      postTransaction({
+    await atomic(async (tx) => {
+      await postTransaction(tx, {
         type: "adjustment",
         itemId: data.itemId,
         warehouseId: data.warehouseId,
@@ -214,7 +209,7 @@ export async function createAdjustment(formData: FormData): Promise<ActionResult
         reason: data.reason,
         userId: admin.id,
       });
-      writeAudit({
+      await writeAudit(tx, {
         actorId: admin.id,
         action: "inventory.adjustment",
         entity: "inventory_transactions",
@@ -258,7 +253,7 @@ export async function createTransfer(formData: FormData): Promise<ActionResult> 
       return { ok: false, error: "Source and destination warehouse must be different" };
     }
 
-    const item = db.select().from(items).where(eq(items.id, data.itemId)).get();
+    const item = (await db.select().from(items).where(eq(items.id, data.itemId)))[0];
     if (!item) return { ok: false, error: "Item not found" };
 
     let batch: typeof batches.$inferSelect | undefined;
@@ -266,32 +261,33 @@ export async function createTransfer(formData: FormData): Promise<ActionResult> 
       if (!data.batchId) {
         return { ok: false, error: "Select which batch this transfer applies to" };
       }
-      batch = db.select().from(batches).where(eq(batches.id, data.batchId)).get();
+      batch = (await db.select().from(batches).where(eq(batches.id, data.batchId)))[0];
       if (!batch) return { ok: false, error: "Batch not found" };
       if (batch.productId !== item.productId) {
         return { ok: false, error: "That batch does not belong to the selected item" };
       }
     }
 
-    atomic(() => {
-      const transferNo = nextDocNumber("TRF");
-      const transfer = db
-        .insert(transfers)
-        .values({
-          transferNo,
-          itemId: data.itemId,
-          batchId: batch?.id,
-          qty: data.qty,
-          uom: item.uom,
-          fromWarehouseId: data.fromWarehouseId,
-          toWarehouseId: data.toWarehouseId,
-          fromZoneId: data.fromZoneId,
-          toZoneId: data.toZoneId,
-          remarks: data.remarks,
-          createdBy: user.id,
-        })
-        .returning()
-        .get();
+    await atomic(async (tx) => {
+      const transferNo = await nextDocNumber(tx, "TRF");
+      const transfer = (
+        await tx
+          .insert(transfers)
+          .values({
+            transferNo,
+            itemId: data.itemId,
+            batchId: batch?.id,
+            qty: data.qty,
+            uom: item.uom,
+            fromWarehouseId: data.fromWarehouseId,
+            toWarehouseId: data.toWarehouseId,
+            fromZoneId: data.fromZoneId,
+            toZoneId: data.toZoneId,
+            remarks: data.remarks,
+            createdBy: user.id,
+          })
+          .returning()
+      )[0];
 
       // batchId: one specific batch. Otherwise: FIFO across lots, possibly
       // spanning several — each pick gets its own transfer_out/transfer_in
@@ -304,10 +300,10 @@ export async function createTransfer(formData: FormData): Promise<ActionResult> 
       // actually where the picked stock lives and throws a false shortage.
       const picks = batch
         ? [{ lotId: null, zoneId: data.fromZoneId ?? null, qty: data.qty }]
-        : pickFifoLots(data.itemId, data.fromWarehouseId, data.qty, data.fromZoneId);
+        : await pickFifoLots(tx, data.itemId, data.fromWarehouseId, data.qty, data.fromZoneId);
 
       for (const pick of picks) {
-        postTransaction({
+        await postTransaction(tx, {
           type: "transfer_out",
           itemId: data.itemId,
           warehouseId: data.fromWarehouseId,
@@ -320,7 +316,7 @@ export async function createTransfer(formData: FormData): Promise<ActionResult> 
           refId: transfer.id,
           userId: user.id,
         });
-        postTransaction({
+        await postTransaction(tx, {
           type: "transfer_in",
           itemId: data.itemId,
           warehouseId: data.toWarehouseId,
@@ -335,7 +331,7 @@ export async function createTransfer(formData: FormData): Promise<ActionResult> 
         });
       }
 
-      writeAudit({
+      await writeAudit(tx, {
         actorId: user.id,
         action: "inventory.transfer",
         entity: "transfers",

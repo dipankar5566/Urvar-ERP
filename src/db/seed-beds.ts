@@ -13,7 +13,7 @@
 // Idempotent: skips if zones already exist.
 
 import { and, eq, isNull } from "drizzle-orm";
-import { db } from "./index";
+import { db, pool } from "./index";
 import { zones, beds, warehouses, siteFeatures } from "./schema";
 import {
   PLOT_BOUNDARY,
@@ -69,67 +69,55 @@ const ZONE2_LINES = [
 ];
 
 async function seedBeds() {
-  const existingShed = db
-    .select()
-    .from(warehouses)
-    .where(eq(warehouses.name, "Machine Shed & Godown"))
-    .get();
+  const existingShed = (
+    await db.select().from(warehouses).where(eq(warehouses.name, "Machine Shed & Godown"))
+  )[0];
   if (!existingShed) {
-    db.insert(warehouses)
-      .values({ name: "Machine Shed & Godown", location: "Kisanbandhu Plant — near Zone 1/2 boundary" })
-      .run();
+    await db
+      .insert(warehouses)
+      .values({ name: "Machine Shed & Godown", location: "Tantipara Plant — near Zone 1/2 boundary" });
     console.log("Seeded Machine Shed & Godown warehouse.");
   }
 
   // Boundary, access strip, and structures — the map renders these from
   // the DB (Phase A refactor), so a fresh install needs them seeded.
-  const existingFeatures = db.select().from(siteFeatures).limit(1).all();
+  const existingFeatures = await db.select().from(siteFeatures).limit(1);
   if (existingFeatures.length === 0) {
-    const shed = db
-      .select()
-      .from(warehouses)
-      .where(eq(warehouses.name, "Machine Shed & Godown"))
-      .get();
-    db.insert(siteFeatures)
-      .values([
-        { kind: "boundary", label: "Plot boundary", polygon: JSON.stringify(PLOT_BOUNDARY) },
-        { kind: "strip", label: "Access strip", polygon: JSON.stringify(STRIP_POLY) },
-        {
-          kind: "structure",
-          structureType: "godown",
-          label: "Machine Shed & Godown",
-          polygon: JSON.stringify(MACHINE_SHED_RECT),
-          warehouseId: shed?.id ?? null,
-        },
-      ])
-      .run();
+    const shed = (await db.select().from(warehouses).where(eq(warehouses.name, "Machine Shed & Godown")))[0];
+    await db.insert(siteFeatures).values([
+      { kind: "boundary", label: "Plot boundary", polygon: JSON.stringify(PLOT_BOUNDARY) },
+      { kind: "strip", label: "Access strip", polygon: JSON.stringify(STRIP_POLY) },
+      {
+        kind: "structure",
+        structureType: "godown",
+        label: "Machine Shed & Godown",
+        polygon: JSON.stringify(MACHINE_SHED_RECT),
+        warehouseId: shed?.id ?? null,
+      },
+    ]);
     console.log("Seeded site features (boundary, strip, Machine Shed).");
   } else {
     // Fresh installs hit migration 0011 before this seed runs, so the
     // Machine Shed feature exists but couldn't link to the warehouse row
     // (seeded above, after migrations). Repair the link idempotently.
-    const shed = db
-      .select()
-      .from(warehouses)
-      .where(eq(warehouses.name, "Machine Shed & Godown"))
-      .get();
+    const shed = (await db.select().from(warehouses).where(eq(warehouses.name, "Machine Shed & Godown")))[0];
     if (shed) {
-      db.update(siteFeatures)
+      await db
+        .update(siteFeatures)
         .set({ warehouseId: shed.id })
         .where(
           and(eq(siteFeatures.label, "Machine Shed & Godown"), isNull(siteFeatures.warehouseId))
-        )
-        .run();
+        );
     }
   }
 
-  const existing = db.select().from(zones).limit(1).all();
+  const existing = await db.select().from(zones).limit(1);
   if (existing.length > 0) {
     console.log("Zones already seeded — skipping.");
     return;
   }
 
-  const [z1, z2] = db
+  const [z1, z2] = await db
     .insert(zones)
     .values([
       {
@@ -147,43 +135,40 @@ async function seedBeds() {
         labelY: ZONE2_LABEL[1],
       },
     ])
-    .returning()
-    .all();
+    .returning();
 
-  db.insert(beds)
-    .values(
-      ZONE1_LINES.map((l) => ({
-        zoneId: z1.id,
-        code: l.code,
-        x1: l.x1,
-        y1: l.y1,
-        x2: l.x2,
-        y2: l.y2,
-        widthFt: BED_WIDTH_FT,
-        lengthFt: l.lengthFt,
-      }))
-    )
-    .run();
+  await db.insert(beds).values(
+    ZONE1_LINES.map((l) => ({
+      zoneId: z1.id,
+      code: l.code,
+      x1: l.x1,
+      y1: l.y1,
+      x2: l.x2,
+      y2: l.y2,
+      widthFt: BED_WIDTH_FT,
+      lengthFt: l.lengthFt,
+    }))
+  );
 
-  db.insert(beds)
-    .values(
-      ZONE2_LINES.map((l) => ({
-        zoneId: z2.id,
-        code: l.code,
-        x1: l.x1,
-        y1: l.y1,
-        x2: l.x2,
-        y2: l.y2,
-        widthFt: BED_WIDTH_FT,
-        lengthFt: l.lengthFt,
-      }))
-    )
-    .run();
+  await db.insert(beds).values(
+    ZONE2_LINES.map((l) => ({
+      zoneId: z2.id,
+      code: l.code,
+      x1: l.x1,
+      y1: l.y1,
+      x2: l.x2,
+      y2: l.y2,
+      widthFt: BED_WIDTH_FT,
+      lengthFt: l.lengthFt,
+    }))
+  );
 
   console.log(`Seeded 2 zones and ${ZONE1_LINES.length + ZONE2_LINES.length} beds (exact site-plan replica).`);
 }
 
-seedBeds().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+seedBeds()
+  .catch((e) => {
+    console.error(e);
+    process.exitCode = 1;
+  })
+  .finally(() => pool.end());

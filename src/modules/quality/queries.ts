@@ -11,7 +11,7 @@ import {
   users,
 } from "@/db/schema";
 
-export function getLotsForInspection() {
+export async function getLotsForInspection() {
   return db
     .select({
       id: lots.id,
@@ -31,11 +31,10 @@ export function getLotsForInspection() {
     })
     .from(lots)
     .innerJoin(items, eq(lots.itemId, items.id))
-    .orderBy(desc(lots.id))
-    .all();
+    .orderBy(desc(lots.id));
 }
 
-export function getBatchesForQC() {
+export async function getBatchesForQC() {
   return db
     .select({
       id: batches.id,
@@ -49,11 +48,10 @@ export function getBatchesForQC() {
     .from(batches)
     .innerJoin(products, eq(batches.productId, products.id))
     .innerJoin(productionOrders, eq(batches.orderId, productionOrders.id))
-    .orderBy(desc(batches.id))
-    .all();
+    .orderBy(desc(batches.id));
 }
 
-export function getBatchTestResults(batchId: number) {
+export async function getBatchTestResults(batchId: number) {
   return db
     .select({
       id: batchTestResults.id,
@@ -67,11 +65,10 @@ export function getBatchTestResults(batchId: number) {
     .from(batchTestResults)
     .innerJoin(users, eq(batchTestResults.recordedBy, users.id))
     .where(eq(batchTestResults.batchId, batchId))
-    .orderBy(desc(batchTestResults.id))
-    .all();
+    .orderBy(desc(batchTestResults.id));
 }
 
-export function getCapas() {
+export async function getCapas() {
   return db
     .select({
       id: capas.id,
@@ -87,34 +84,34 @@ export function getCapas() {
     .from(capas)
     .leftJoin(users, eq(capas.responsibleUserId, users.id))
     .leftJoin(batches, eq(capas.linkedBatchId, batches.id))
-    .orderBy(desc(capas.id))
-    .all();
+    .orderBy(desc(capas.id));
 }
 
-export function getCapaDetail(capaId: number) {
-  return db
-    .select({
-      id: capas.id,
-      capaNo: capas.capaNo,
-      issue: capas.issue,
-      rootCause: capas.rootCause,
-      correctiveAction: capas.correctiveAction,
-      preventiveAction: capas.preventiveAction,
-      status: capas.status,
-      deadline: capas.deadline,
-      responsibleUserId: capas.responsibleUserId,
-      verificationNotes: capas.verificationNotes,
-      createdAt: capas.createdAt,
-      closedAt: capas.closedAt,
-      linkedBatchNo: batches.batchNo,
-    })
-    .from(capas)
-    .leftJoin(batches, eq(capas.linkedBatchId, batches.id))
-    .where(eq(capas.id, capaId))
-    .get();
+export async function getCapaDetail(capaId: number) {
+  return (
+    await db
+      .select({
+        id: capas.id,
+        capaNo: capas.capaNo,
+        issue: capas.issue,
+        rootCause: capas.rootCause,
+        correctiveAction: capas.correctiveAction,
+        preventiveAction: capas.preventiveAction,
+        status: capas.status,
+        deadline: capas.deadline,
+        responsibleUserId: capas.responsibleUserId,
+        verificationNotes: capas.verificationNotes,
+        createdAt: capas.createdAt,
+        closedAt: capas.closedAt,
+        linkedBatchNo: batches.batchNo,
+      })
+      .from(capas)
+      .leftJoin(batches, eq(capas.linkedBatchId, batches.id))
+      .where(eq(capas.id, capaId))
+  )[0];
 }
 
-export type LotForInspection = ReturnType<typeof getLotsForInspection>[number];
-export type BatchForQC = ReturnType<typeof getBatchesForQC>[number];
-export type BatchTestResultRow = ReturnType<typeof getBatchTestResults>[number];
-export type CapaRow = ReturnType<typeof getCapas>[number];
+export type LotForInspection = Awaited<ReturnType<typeof getLotsForInspection>>[number];
+export type BatchForQC = Awaited<ReturnType<typeof getBatchesForQC>>[number];
+export type BatchTestResultRow = Awaited<ReturnType<typeof getBatchTestResults>>[number];
+export type CapaRow = Awaited<ReturnType<typeof getCapas>>[number];

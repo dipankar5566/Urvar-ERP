@@ -31,18 +31,18 @@ export default async function MastersPage() {
     templateRows,
     stageRows,
     userRows,
-  ] = [
-    db.select().from(products).orderBy(asc(products.name)).all(),
-    db.select().from(items).orderBy(asc(items.name)).all(),
-    db.select().from(warehouses).orderBy(asc(warehouses.name)).all(),
-    db.select().from(warehouseZones).orderBy(asc(warehouseZones.name)).all(),
-    db.select().from(vendors).orderBy(asc(vendors.name)).all(),
-    db.select().from(formulas).orderBy(asc(formulas.name)).all(),
-    db.select().from(formulaLines).all(),
-    db.select().from(workflowTemplates).orderBy(asc(workflowTemplates.name)).all(),
-    db.select().from(workflowTemplateStages).orderBy(asc(workflowTemplateStages.seq)).all(),
-    db.select().from(users).orderBy(asc(users.name)).all(),
-  ];
+  ] = await Promise.all([
+    db.select().from(products).orderBy(asc(products.name)),
+    db.select().from(items).orderBy(asc(items.name)),
+    db.select().from(warehouses).orderBy(asc(warehouses.name)),
+    db.select().from(warehouseZones).orderBy(asc(warehouseZones.name)),
+    db.select().from(vendors).orderBy(asc(vendors.name)),
+    db.select().from(formulas).orderBy(asc(formulas.name)),
+    db.select().from(formulaLines),
+    db.select().from(workflowTemplates).orderBy(asc(workflowTemplates.name)),
+    db.select().from(workflowTemplateStages).orderBy(asc(workflowTemplateStages.seq)),
+    db.select().from(users).orderBy(asc(users.name)),
+  ]);
 
   return (
     <MastersView

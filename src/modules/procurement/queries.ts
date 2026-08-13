@@ -2,12 +2,12 @@ import { desc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { vendors, purchaseOrders, purchaseOrderLines, items, users } from "@/db/schema";
 
-export function getVendors() {
-  return db.select().from(vendors).orderBy(vendors.name).all();
+export async function getVendors() {
+  return db.select().from(vendors).orderBy(vendors.name);
 }
 
 // PO list with per-PO aggregates — qty/received across lines, line count.
-export function getPurchaseOrders() {
+export async function getPurchaseOrders() {
   return db
     .select({
       id: purchaseOrders.id,
@@ -29,12 +29,11 @@ export function getPurchaseOrders() {
     .innerJoin(vendors, eq(purchaseOrders.vendorId, vendors.id))
     .innerJoin(users, eq(purchaseOrders.createdBy, users.id))
     .leftJoin(purchaseOrderLines, eq(purchaseOrderLines.poId, purchaseOrders.id))
-    .groupBy(purchaseOrders.id)
-    .orderBy(desc(purchaseOrders.id))
-    .all();
+    .groupBy(purchaseOrders.id, vendors.name, users.name)
+    .orderBy(desc(purchaseOrders.id));
 }
 
-export function getPurchaseOrderLines(poId: number) {
+export async function getPurchaseOrderLines(poId: number) {
   return db
     .select({
       id: purchaseOrderLines.id,
@@ -48,14 +47,13 @@ export function getPurchaseOrderLines(poId: number) {
     })
     .from(purchaseOrderLines)
     .innerJoin(items, eq(purchaseOrderLines.itemId, items.id))
-    .where(eq(purchaseOrderLines.poId, poId))
-    .all();
+    .where(eq(purchaseOrderLines.poId, poId));
 }
 
 // Every line across every PO, item name joined — bulk-loaded once for the
 // list page's per-PO detail dialogs (small scale: dozens of POs, not worth a
 // round trip per row click, matching how Masters bulk-loads formulaLines).
-export function getAllPurchaseOrderLines() {
+export async function getAllPurchaseOrderLines() {
   return db
     .select({
       id: purchaseOrderLines.id,
@@ -68,14 +66,13 @@ export function getAllPurchaseOrderLines() {
       receivedQty: purchaseOrderLines.receivedQty,
     })
     .from(purchaseOrderLines)
-    .innerJoin(items, eq(purchaseOrderLines.itemId, items.id))
-    .all();
+    .innerJoin(items, eq(purchaseOrderLines.itemId, items.id));
 }
 
 // Flat (vendorId, itemId, rate, createdAt) history, most recent first —
 // the New/Edit PO dialog uses this client-side to suggest the last rate as
 // item/vendor selections change, without a server round trip per keystroke.
-export function getRateHistory() {
+export async function getRateHistory() {
   return db
     .select({
       vendorId: purchaseOrders.vendorId,
@@ -86,13 +83,12 @@ export function getRateHistory() {
     .from(purchaseOrderLines)
     .innerJoin(purchaseOrders, eq(purchaseOrderLines.poId, purchaseOrders.id))
     .where(sql`${purchaseOrders.status} != 'cancelled'`)
-    .orderBy(desc(purchaseOrders.createdAt), desc(purchaseOrders.id))
-    .all();
+    .orderBy(desc(purchaseOrders.createdAt), desc(purchaseOrders.id));
 }
 
 // All lines still open (parent PO approved/partially_received, qty remaining)
 // — feeds the Goods Receipt "From Purchase Order" picker.
-export function getOpenPOLines() {
+export async function getOpenPOLines() {
   return db
     .select({
       id: purchaseOrderLines.id,
@@ -115,41 +111,42 @@ export function getOpenPOLines() {
       sql`${purchaseOrders.status} IN ('approved', 'partially_received')
           AND ${purchaseOrderLines.receivedQty} < ${purchaseOrderLines.qty} - 1e-9`
     )
-    .orderBy(purchaseOrders.id)
-    .all();
+    .orderBy(purchaseOrders.id);
 }
 
 // Most recent rate paid to a vendor for an item — pre-fills a new PO line.
-export function getLastVendorRate(vendorId: number, itemId: number): number | null {
-  const row = db
-    .select({ rate: purchaseOrderLines.rate })
-    .from(purchaseOrderLines)
-    .innerJoin(purchaseOrders, eq(purchaseOrderLines.poId, purchaseOrders.id))
-    .where(
-      sql`${purchaseOrders.vendorId} = ${vendorId} AND ${purchaseOrderLines.itemId} = ${itemId}
+export async function getLastVendorRate(vendorId: number, itemId: number): Promise<number | null> {
+  const row = (
+    await db
+      .select({ rate: purchaseOrderLines.rate })
+      .from(purchaseOrderLines)
+      .innerJoin(purchaseOrders, eq(purchaseOrderLines.poId, purchaseOrders.id))
+      .where(
+        sql`${purchaseOrders.vendorId} = ${vendorId} AND ${purchaseOrderLines.itemId} = ${itemId}
           AND ${purchaseOrders.status} != 'cancelled'`
-    )
-    .orderBy(desc(purchaseOrders.createdAt), desc(purchaseOrders.id))
-    .limit(1)
-    .get();
+      )
+      .orderBy(desc(purchaseOrders.createdAt), desc(purchaseOrders.id))
+      .limit(1)
+  )[0];
   return row?.rate ?? null;
 }
 
 // Vendor of the most recent PO line for an item — feeds the Dashboard
 // Quick-PO shortcut's default vendor selection.
-export function getLastVendorForItem(itemId: number): number | null {
-  const row = db
-    .select({ vendorId: purchaseOrders.vendorId })
-    .from(purchaseOrderLines)
-    .innerJoin(purchaseOrders, eq(purchaseOrderLines.poId, purchaseOrders.id))
-    .where(sql`${purchaseOrderLines.itemId} = ${itemId} AND ${purchaseOrders.status} != 'cancelled'`)
-    .orderBy(desc(purchaseOrders.createdAt), desc(purchaseOrders.id))
-    .limit(1)
-    .get();
+export async function getLastVendorForItem(itemId: number): Promise<number | null> {
+  const row = (
+    await db
+      .select({ vendorId: purchaseOrders.vendorId })
+      .from(purchaseOrderLines)
+      .innerJoin(purchaseOrders, eq(purchaseOrderLines.poId, purchaseOrders.id))
+      .where(sql`${purchaseOrderLines.itemId} = ${itemId} AND ${purchaseOrders.status} != 'cancelled'`)
+      .orderBy(desc(purchaseOrders.createdAt), desc(purchaseOrders.id))
+      .limit(1)
+  )[0];
   return row?.vendorId ?? null;
 }
 
-export type PurchaseOrderRow = ReturnType<typeof getPurchaseOrders>[number];
-export type PurchaseOrderLineRow = ReturnType<typeof getPurchaseOrderLines>[number];
-export type OpenPOLineRow = ReturnType<typeof getOpenPOLines>[number];
-export type RateHistoryRow = ReturnType<typeof getRateHistory>[number];
+export type PurchaseOrderRow = Awaited<ReturnType<typeof getPurchaseOrders>>[number];
+export type PurchaseOrderLineRow = Awaited<ReturnType<typeof getPurchaseOrderLines>>[number];
+export type OpenPOLineRow = Awaited<ReturnType<typeof getOpenPOLines>>[number];
+export type RateHistoryRow = Awaited<ReturnType<typeof getRateHistory>>[number];

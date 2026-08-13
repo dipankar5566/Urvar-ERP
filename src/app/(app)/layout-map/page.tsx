@@ -7,17 +7,14 @@ import { LayoutView } from "./layout-view";
 
 export default async function LayoutPage() {
   const user = await requireUser();
-  const layout = getBedLayout();
-  const warehouseRows = db.select().from(warehouses).orderBy(asc(warehouses.name)).all();
+  const layout = await getBedLayout();
+  const warehouseRows = await db.select().from(warehouses).orderBy(asc(warehouses.name));
 
   // Raw-material items for the bio-enzyme maintenance log's item picker —
   // not locked to a single hardcoded item id so a rename doesn't break it.
-  const rawMaterialItems = db
-    .select()
-    .from(items)
-    .orderBy(asc(items.name))
-    .all()
-    .filter((i) => i.category === "raw_material" && i.active);
+  const rawMaterialItems = (await db.select().from(items).orderBy(asc(items.name))).filter(
+    (i) => i.category === "raw_material" && i.active
+  );
   const defaultBioEnzymeItemId =
     rawMaterialItems.find((i) => i.name.toLowerCase().includes("enzyme"))?.id ?? null;
 

@@ -1,10 +1,10 @@
 import { defineConfig } from "drizzle-kit";
 
 export default defineConfig({
-  dialect: "sqlite",
+  dialect: "postgresql",
   schema: "./src/db/schema.ts",
   out: "./src/db/migrations",
   dbCredentials: {
-    url: "./data/urvar.db",
+    url: process.env.DATABASE_URL ?? "postgresql://postgres:postgres@localhost:5432/urvar_erp",
   },
 });
