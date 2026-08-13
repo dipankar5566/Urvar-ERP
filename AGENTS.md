@@ -187,14 +187,21 @@ any of the four.
   the tunnel hostname listed, Next blocks its own dev assets cross-origin: pages render but no
   button, dialog or tab responds, because client JS never initialises. Server-rendered HTML
   looks perfect, so this only shows up by driving the real UI.
-- **`next build` is currently broken** — every route fails prerendering with
-  `InvariantError: Expected workStore to be initialized`, thrown from
-  `next/dist/server/request/{params,search-params,pathname}.js`. It is not caused by app code in
-  `global-error.tsx`, not the Next version (16.2.9 and 16.2.10 both fail), and not stale
-  artifacts (a from-scratch build fails identically). The last good build predates the
-  Postgres/CRM work, so bisect that range to find it. **Until it is fixed, production runs
-  `next dev` on port 3001** — slower, recompiles on edit, and lost on reboot since nothing
-  supervises it.
+- **Always work from `D:\Urvar-ERP` — the exact casing matters.** Windows resolves
+  `D:\urvar-erp` to the same folder, but Turbopack treats the two spellings as different roots
+  and ends up with two copies of `work-async-storage.external`, a module Next requires to be a
+  singleton. The build then dies on every route — including built-ins like `/_global-error` —
+  with `InvariantError: Expected workStore to be initialized` from
+  `next/dist/server/request/{params,search-params,pathname}.js`. Nothing in the app is wrong
+  when this happens: same commit, same `node_modules`, correct casing builds and wrong casing
+  does not. `ecosystem.config.js` pins `cwd` to the correct spelling for this reason. If you
+  ever see that invariant, check `pwd` before suspecting anything else — it cost most of a day
+  once, chasing app code, Next versions and a needless `npm ci`.
+- **Production runs `next start` under PM2** (`ecosystem.config.js`, app name `urvar-erp`).
+  After a code change: `npx next build` then `npx pm2 restart urvar-erp`. `npx pm2 save` keeps
+  the process list across reboots, and a logon script in the user's Startup folder runs
+  `pm2 resurrect` — note that is *logon*, not boot, because `pm2 startup` is not supported on
+  Windows and Task Scheduler needs Administrator.
 - **A 200 is not proof the site works.** Both outages in this repo's history served 200 for the
   HTML while the app was dead client-side. Verify by logging in and loading pages with
   Playwright, failing on any 4xx/5xx sub-resource — `verify-live.mjs` and `diag-buttons.mjs`

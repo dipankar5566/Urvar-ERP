@@ -54,3 +54,6 @@ dev-server.log
 /.next.bak/
 erp-3001.log
 erp-3001.err.log
+
+# pm2 logs
+/logs/
